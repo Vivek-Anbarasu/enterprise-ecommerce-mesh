@@ -1,0 +1,64 @@
+# Reference Kubernetes manifests.
+#
+# These are deliberately plain and complete so they can be read, audited and
+# applied with plain `kubectl`. The Helm chart in deploy/helm is what you should
+# actually use for a real deployment (it handles environments, rollouts and
+# secret wiring properly), but these manifests document exactly what runs.
+#
+# Apply:
+#   kubectl apply -k platform/kubernetes/base
+---
+# Namespace with baseline security and resource enforcement.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ecommerce
+  labels:
+    app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+    # Istio sidecar injection is opt-in per namespace: it costs ~40MB and a
+    # sidecar start time on every pod, so only services that need it pay.
+    istio-injection: disabled
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ecommerce-workload
+  namespace: ecommerce
+  labels:
+    app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: ecommerce-quota
+  namespace: ecommerce
+spec:
+  hard:
+    requests.cpu: "40"
+    requests.memory: 80Gi
+    limits.cpu: "80"
+    limits.memory: 160Gi
+    persistentvolumeclaims: "10"
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ecommerce-default-pdb
+  namespace: ecommerce
+spec:
+  # Never take a service below this many ready replicas during a node drain.
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+---
+# Applied by Istio to every pod: stops the app from resolving ClusterIP
+# services and sending traffic outside the mesh policy set.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default-strict-mtls
+  namespace: ecommerce
+spec:
+  mtls:
+    mode: STRICT

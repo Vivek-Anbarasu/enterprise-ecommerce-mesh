@@ -1,0 +1,145 @@
+# Local development infrastructure.
+#
+# This brings up the stateful dependencies only. Run the services themselves on
+# the host with `mvn spring-boot:run`, so code changes need no image rebuild.
+#
+#   docker compose up -d
+#   mvn -q clean install
+#   java -jar api-gateway/target/api-gateway-1.0.0.jar
+#
+# Production topology is deliberately different: in AKS these are managed
+# services (Azure Database for PostgreSQL, Azure Cache for Redis, Azure
+# Service Bus / Event Hubs) and this file is not used. See docs/AKS-DEPLOYMENT.md.
+
+name: enterprise-ecommerce-mesh
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: mesh-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      # One database per service, mirroring the production isolation model.
+      POSTGRES_MULTIPLE_DATABASES: orders_db,inventory_db,payments_db,customers_db,shipping_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./platform/docker/postgres-init.sh:/docker-entrypoint-initdb.d/init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [mesh]
+
+  mongodb:
+    image: mongo:7
+    container_name: mesh-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [mesh]
+
+  redis:
+    image: redis:7-alpine
+    container_name: mesh-redis
+    # Persistence is off: carts and caches are rebuildable, and an fsync per
+    # write would dominate latency for no durability benefit.
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [mesh]
+
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: mesh-kafka
+    environment:
+      # KRaft mode: no ZooKeeper. One less stateful dependency to operate.
+      KAFKA_CFG_NODE_ID: "1"
+      KAFKA_CFG_PROCESS_ROLES: "controller,broker"
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_CFG_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:29092"
+      KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092"
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+      # Single broker locally, so everything must tolerate RF=1.
+      KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_CFG_NUM_PARTITIONS: "3"
+    ports:
+      - "29092:29092"
+    volumes:
+      - kafka-data:/bitnami/kafka
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    networks: [mesh]
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: mesh-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # UI
+      - "4318:4318"     # OTLP HTTP receiver
+    networks: [mesh]
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: mesh-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./platform/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks: [mesh]
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: mesh-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./platform/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    depends_on: [prometheus]
+    networks: [mesh]
+
+volumes:
+  postgres-data:
+  mongo-data:
+  kafka-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  mesh:
+    driver: bridge

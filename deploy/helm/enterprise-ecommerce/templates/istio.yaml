@@ -1,0 +1,145 @@
+{{/*
+Istio policy. Rendered only when istio.enabled is true, so the chart also works
+against a cluster without the mesh.
+*/}}
+{{- if .Values.istio.enabled }}
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: {{ .Release.Namespace }}
+spec:
+  mtls:
+    # STRICT rather than PERMISSIVE: permissive silently allows plaintext, so a
+    # misconfigured service quietly loses transport encryption.
+    mode: STRICT
+---
+# Deny by default. Istio evaluates deny policies first, so ALLOW rules can only
+# ever narrow access further.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: default-deny
+  namespace: {{ .Release.Namespace }}
+spec: {}
+---
+# Allow the ingress controller to reach the gateway, and the gateway to reach
+# business services.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-mesh-traffic
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/ingress-nginx/sa/ingress-nginx
+      to:
+        - operation:
+            paths: ["/api/*", "/actuator/health/*"]
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/{{ .Release.Namespace }}/sa/{{ .Release.Name }}-gateway
+              - cluster.local/ns/{{ .Release.Namespace }}/sa/{{ .Release.Name }}-workload
+      to:
+        - operation:
+            paths: ["/api/*", "/internal/*", "/actuator/health/*"]
+---
+# Internal-only surfaces are never reachable through the public path.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-external-to-internal
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: shipping-delivery-service
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/{{ .Release.Namespace }}/sa/{{ .Release.Name }}-workload
+      to:
+        - operation:
+            paths: ["/internal/*"]
+---
+# Outbound allow-list. Contains an SSRF or data-exfiltration attempt inside the
+# mesh rather than letting it reach the public internet.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: restrict-egress
+  namespace: {{ .Release.Namespace }}
+spec:
+  action: ALLOW
+  rules:
+    - to:
+        - operation:
+            hosts: ["*.svc.cluster.local"]
+    - to:
+        - operation:
+            hosts: ["*.postgres.database.azure.com", "*.redis.cache.windows.net"]
+    - to:
+        - operation:
+            hosts: ["*.servicebus.windows.net", "*.vault.azure.net"]
+    - to:
+        - operation:
+            hosts: ["monitoring.azure.com", "*.blob.core.windows.net"]
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: checkout-timeouts
+  namespace: {{ .Release.Namespace }}
+spec:
+  hosts:
+    - order-service
+    - payment-service
+    - inventory-service
+  http:
+    - name: checkout
+      match:
+        - uri:
+            prefix: /api/
+      timeout: 10s
+      retries:
+        attempts: 2
+        perTryTimeout: 3s
+        # Only retry transport failures and 5xx. Retrying a POST that was
+        # actually processed would double-charge or double-ship.
+        retryOn: "5xx,reset,connect-failure,refused-stream"
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: order-service
+  namespace: {{ .Release.Namespace }}
+spec:
+  host: order-service
+  trafficPolicy:
+    loadBalancer:
+      simple: LEAST_REQUEST
+    connectionPool:
+      tcp:
+        maxConnections: 100
+      http:
+        http1MaxPendingRequests: 200
+        maxRequestsPerConnection: 20
+    # Eject a pod that starts timing out before it becomes a user-visible
+    # failure for every request routed to it.
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 10s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+{{- end }}

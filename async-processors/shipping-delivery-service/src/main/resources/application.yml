@@ -1,0 +1,85 @@
+server:
+  port: ${SERVER_PORT:8089}
+  shutdown: graceful
+
+spring:
+  application:
+    name: shipping-delivery-service
+  main:
+    banner-mode: off
+  lifecycle:
+    # Longer than the default so in-flight carrier webhooks can finish before
+    # the pod exits during a rolling deploy.
+    timeout-per-shutdown-phase: 45s
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/shipping_db}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX:15}
+      minimum-idle: 3
+      connection-timeout: 5000
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${KAFKA_GROUP_ID:shipping-service}
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+    security:
+      ssl-truststore-location: ${KAFKA_TRUSTSTORE_LOCATION:}
+
+mesh:
+  environment: ${MESH_ENV:local}
+  tier: async
+  messaging:
+    consumer-concurrency: ${KAFKA_CONCURRENCY:2}
+  shipping:
+    consumer-group: ${KAFKA_GROUP_ID:shipping-service}
+  clients:
+    order: ${ORDER_URI:http://order-service:8082}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when-authorized
+      group:
+        readiness:
+          include: readinessState,db,kafka
+        liveness:
+          include: livenessState
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_RATE:0.1}
+  otlp:
+    tracing:
+      endpoint: ${OTLP_ENDPOINT:http://jaeger-collector.observability.svc.cluster.local:4318/v1/traces}
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  structured:
+    format:
+      console: ${LOG_FORMAT:ecs}
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.enterprise.mesh: ${LOG_LEVEL_APP:INFO}

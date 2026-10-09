@@ -1,0 +1,88 @@
+spring:
+  application:
+    name: notification-service
+  main:
+    banner-mode: off
+    # Actuator must stay reachable so kubelet probes work, so this stays a
+    # servlet application. The Business port is disabled below: the worker
+    # accepts no business HTTP traffic, only probes and metrics on 8081.
+  lifecycle:
+    timeout-per-shutdown-phase: 45s
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 1s
+      lettuce:
+        pool:
+          max-active: 16
+          min-idle: 4
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${KAFKA_GROUP_ID:notification-service}
+      auto-offset-reset: earliest
+      # Do not auto-commit: offsets advance only after the handler returns, so a
+      # crash mid-dispatch replays the message rather than losing it.
+      enable-auto-commit: false
+      max-poll-records: 50
+    security:
+      ssl-truststore-location: ${KAFKA_TRUSTSTORE_LOCATION:}
+
+mesh:
+  environment: ${MESH_ENV:local}
+  tier: async
+  messaging:
+    consumer-concurrency: ${KAFKA_CONCURRENCY:3}
+    max-retries: 3
+    retry-interval: 2s
+  notification:
+    consumer-group: ${KAFKA_GROUP_ID:notification-service}
+
+server:
+  # No business listener. Probes and metrics are served by the actuator below.
+  port: -1
+
+management:
+  server:
+    port: ${MANAGEMENT_PORT:8081}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        # Kafka health is listed with `optional:` because this worker is
+        # deliberately started without a broker during local development and in
+        # the smoke test. Treating it as required would make the pod unready -
+        # and therefore never consume - until Kafka happened to be up.
+        readiness:
+          include: readinessState
+        liveness:
+          # Liveness must never depend on Kafka. A broker outage is a degraded
+          # dependency, not a reason to kill the pod; restart-looping would only
+          # add reconnection storms and delay recovery.
+          include: livenessState
+      # Required in Kubernetes, where a misconfigured group should fail fast.
+      validate-group-membership: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_RATE:0.1}
+  otlp:
+    tracing:
+      endpoint: ${OTLP_ENDPOINT:http://jaeger-collector.observability.svc.cluster.local:4318/v1/traces}
+
+logging:
+  structured:
+    format:
+      console: ${LOG_FORMAT:ecs}
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.enterprise.mesh: ${LOG_LEVEL_APP:INFO}
+    org.apache.kafka: ${LOG_LEVEL_KAFKA:WARN}

@@ -1,0 +1,258 @@
+# Default values for the enterprise-ecommerce chart.
+#
+# Override per environment with -f values-prod.yaml. Anything secret is never
+# set here: it is read from Key Vault through the CSI driver.
+
+global:
+  imageRegistry: acrenterprise.azurecr.io
+  imagePullSecrets: []
+  meshEnv: aks-prod
+  logFormat: ecs
+  logLevelRoot: INFO
+  logLevelApp: INFO
+  tracingSampleRate: "0.1"
+  otlpEndpoint: http://jaeger-collector.observability.svc.cluster.local:4318/v1/traces
+  # Shared by every service; used for rate limiting and tenant resolution.
+  tenantDefault: public
+
+# Inject the Istio sidecar. Disable for workloads that need no mesh features;
+# a sidecar costs ~40MB and a few seconds of startup per pod.
+istio:
+  enabled: true
+  revision: ""
+
+# Key Vault CSI driver integration. Secrets are mounted as files, so no secret
+# ever appears in an environment variable or in etcd.
+keyVault:
+  enabled: false
+  vaultUri: ""
+  tenantId: ""
+  objects: []
+
+# ---------------------------------------------------------------------------
+# Infrastructure endpoints. Managed services in AKS, containers locally.
+# ---------------------------------------------------------------------------
+infrastructure:
+  postgres:
+    host: ""
+    port: 5432
+  redis:
+    host: redis-cache.redis.svc.cluster.local
+    port: 6379
+  kafka:
+    bootstrapServers: kafka.messaging.svc.cluster.local:9092
+  mongodb:
+    uri: ""
+
+# ---------------------------------------------------------------------------
+# Shared probe defaults.
+# ---------------------------------------------------------------------------
+probes:
+  startup:
+    failureThreshold: 30
+    periodSeconds: 5
+  readiness:
+    periodSeconds: 5
+    failureThreshold: 3
+  liveness:
+    periodSeconds: 10
+    failureThreshold: 3
+
+# ---------------------------------------------------------------------------
+# Individual services.
+#
+# `tier` selects sensible defaults for replicas and resources; override any
+# field inline. `enabled: false` leaves a service out entirely, which is how a
+# non-critical tier is removed from a smaller environment.
+# ---------------------------------------------------------------------------
+services:
+  api-gateway:
+    enabled: true
+    tier: edge
+    replicas: 3
+    port: 8080
+    image:
+      repository: api-gateway
+      tag: ""            # defaults to .Chart.AppVersion
+    ingress:
+      enabled: true
+      className: nginx
+      host: api.enterprise-ecommerce.com
+      tlsSecret: api-gateway-tls
+      annotations:
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    resources:
+      requests: { cpu: 250m, memory: 512Mi }
+      limits: { cpu: "1", memory: 1Gi }
+    # Rate limits, in requests per second per tenant.
+    rateLimits:
+      read:  { replenishRate: 200, burstCapacity: 400 }
+      write: { replenishRate: 50,  burstCapacity: 100 }
+      order: { replenishRate: 20,  burstCapacity: 40 }
+    extraEnv: {}
+
+  product-catalog-service:
+    enabled: true
+    tier: edge
+    replicas: 3
+    port: 8085
+    image: { repository: product-catalog-service }
+    database: catalog
+    mongodb: true
+    resources:
+      requests: { cpu: 250m, memory: 512Mi }
+      limits: { cpu: "1", memory: 1Gi }
+    extraEnv: {}
+
+  review-rating-service:
+    enabled: true
+    tier: edge
+    replicas: 2
+    port: 8088
+    image: { repository: review-rating-service }
+    database: reviews
+    mongodb: true
+    resources:
+      requests: { cpu: 200m, memory: 384Mi }
+      limits: { cpu: 750m, memory: 768Mi }
+    extraEnv: {}
+
+  ai-orchestrator-service:
+    enabled: true
+    tier: edge
+    replicas: 2
+    port: 8090
+    image: { repository: ai-orchestrator-service }
+    database: ai
+    mongodb: true
+    resources:
+      requests: { cpu: 200m, memory: 512Mi }
+      limits: { cpu: "1", memory: 1Gi }
+    extraEnv:
+      AI_PROVIDER: none
+
+  order-service:
+    enabled: true
+    tier: core
+    replicas: 3
+    port: 8082
+    image: { repository: order-service }
+    database: orders
+    resources:
+      requests: { cpu: 400m, memory: 768Mi }
+      limits: { cpu: "2", memory: 1536Mi }
+    extraEnv:
+      RESERVATION_TTL_SECONDS: "900"
+
+  payment-service:
+    enabled: true
+    tier: core
+    replicas: 3
+    port: 8084
+    image: { repository: payment-service }
+    database: payments
+    resources:
+      requests: { cpu: 300m, memory: 512Mi }
+      limits: { cpu: "1", memory: 1Gi }
+    extraEnv:
+      # MUST be overridden in production; the stub authorises anything.
+      PAYMENT_GATEWAY: stub
+
+  inventory-service:
+    enabled: true
+    tier: core
+    replicas: 3
+    port: 8083
+    image: { repository: inventory-service }
+    database: inventory
+    resources:
+      requests: { cpu: 350m, memory: 640Mi }
+      limits: { cpu: "2", memory: 1280Mi }
+    extraEnv:
+      SWEEPER_INTERVAL_MS: "60000"
+
+  shopping-cart-service:
+    enabled: true
+    tier: edge
+    replicas: 3
+    port: 8086
+    image: { repository: shopping-cart-service }
+    resources:
+      requests: { cpu: 150m, memory: 256Mi }
+      limits: { cpu: 500m, memory: 512Mi }
+    extraEnv:
+      CART_TTL_MINUTES: "20160"
+
+  customer-service:
+    enabled: true
+    tier: core
+    replicas: 2
+    port: 8087
+    image: { repository: customer-service }
+    database: customers
+    resources:
+      requests: { cpu: 200m, memory: 384Mi }
+      limits: { cpu: 750m, memory: 768Mi }
+    extraEnv: {}
+
+  notification-service:
+    enabled: true
+    tier: async
+    replicas: 2
+    # Headless worker: no business HTTP port, only actuator.
+    headless: true
+    managementPort: 8081
+    image: { repository: notification-service }
+    resources:
+      requests: { cpu: 150m, memory: 384Mi }
+      limits: { cpu: 750m, memory: 768Mi }
+    extraEnv:
+      KAFKA_CONCURRENCY: "3"
+
+  shipping-delivery-service:
+    enabled: true
+    tier: async
+    replicas: 2
+    port: 8089
+    image: { repository: shipping-delivery-service }
+    database: shipping
+    resources:
+      requests: { cpu: 200m, memory: 384Mi }
+      limits: { cpu: 750m, memory: 768Mi }
+    extraEnv: {}
+
+# ---------------------------------------------------------------------------
+# Platform components installed alongside the mesh.
+# ---------------------------------------------------------------------------
+observability:
+  prometheus:
+    enabled: true
+    retention: 15d
+  grafana:
+    enabled: true
+    adminUser: admin
+  jaeger:
+    enabled: true
+
+# Guardrails applied to every generated workload.
+podSecurity:
+  runAsNonRoot: true
+  runAsUser: 10001
+  readOnlyRootFilesystem: true
+  dropCapabilities: ["ALL"]
+  seccompProfile: RuntimeDefault
+
+networkPolicies:
+  enabled: true
+  defaultDeny: true
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 12
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+pdb:
+  enabled: true
+  minAvailable: 1

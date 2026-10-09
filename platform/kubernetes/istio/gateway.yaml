@@ -1,0 +1,197 @@
+# Istio configuration: mTLS, traffic policy and authorization.
+#
+# Defence in depth, stated explicitly:
+#   1. The ingress is the only public entry point.
+#   2. STRICT mTLS means plaintext inside the mesh is impossible.
+#   3. AuthorizationPolicies decide which service identity may call which path.
+#      Without these, any pod that obtains a token could call any service.
+---
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: ecommerce
+spec:
+  mtls:
+    # STRICT, not PERMISSIVE: a permissive mesh silently allows plaintext, which
+    # means one misconfigured service quietly loses transport security.
+    mode: STRICT
+---
+# Denies everything not explicitly allowed. Istio applies deny policies first,
+# so an ALLOW rule can never widen this.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: default-deny
+  namespace: ecommerce
+spec: {}
+---
+# Every service may be reached from the gateway. This is the single place that
+# grants external access to the mesh.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-from-gateway
+  namespace: ecommerce
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/ecommerce/sa/ecommerce-gateway"
+      to:
+        - operation:
+            paths: ["/api/*"]
+---
+# Internal-only surfaces: shipping webhooks and notification internals must not
+# be callable by the gateway's public path at all.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-internal-services
+  namespace: ecommerce
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+  action: ALLOW
+  rules:
+    # Service-to-service calls carry the mesh identity of the caller workload.
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/ecommerce/sa/ecommerce-workload"
+      to:
+        - operation:
+            paths: ["/api/*", "/internal/*", "/actuator/health/*"]
+---
+# Only the Istio ingress gateway may reach the api-gateway workload directly,
+# which stops a bypass attempt from inside the cluster.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: gateway-ingress-only
+  namespace: ecommerce
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-gateway
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/ingress-nginx/sa/ingress-nginx"
+      to:
+        - operation:
+            methods: ["GET", "POST", "PUT", "PATCH", "DELETE"]
+---
+# Outbound traffic control: services reach the mesh and the managed data planes
+# only. An SSRF through a compromised service is contained.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: egress-restrictions
+  namespace: ecommerce
+spec:
+  action: ALLOW
+  rules:
+    - to:
+        - operation:
+            hosts: ["*.svc.cluster.local"]
+    - to:
+        - operation:
+            hosts: ["*.postgres.database.azure.com"]
+    - to:
+        - operation:
+            hosts: ["*.redis.cache.windows.net"]
+    - to:
+        - operation:
+            hosts: ["*.servicebus.windows.net"]
+    - to:
+        - operation:
+            hosts: ["*.vault.azure.net"]
+    - to:
+        - operation:
+            hosts: ["monitoring.azure.com"]
+---
+# Retry and timeout budgets per upstream, so a slow dependency cannot exhaust
+# caller-side connection pools.
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: checkout-timeouts
+  namespace: ecommerce
+spec:
+  hosts:
+    - order-service
+    - payment-service
+    - inventory-service
+  http:
+    - name: checkout
+      match:
+        - uri:
+            prefix: /api/
+      timeout: 10s
+      retries:
+        attempts: 2
+        # Only retry idempotent verbs. Retrying POST /payments would double-charge.
+        perTryTimeout: 3s
+        retryOn: "5xx,reset,connect-failure,refused-stream"
+---
+# Traffic splitting support for progressive rollout: shift 5% of checkout traffic
+# to a canary revision without changing the Deployment's image reference.
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: order-service-canary
+  namespace: ecommerce
+spec:
+  hosts:
+    - order-service
+  http:
+    - route:
+        - destination:
+            host: order-service
+            subset: stable
+          weight: 95
+        - destination:
+            host: order-service
+            subset: canary
+          weight: 5
+      timeout: 10s
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: order-service
+  namespace: ecommerce
+spec:
+  host: order-service
+  trafficPolicy:
+    loadBalancer:
+      simple: LEAST_REQUEST
+    connectionPool:
+      tcp:
+        maxConnections: 100
+      http:
+        # Explicit outlier ejection: a pod that starts timing out is pulled
+        # out of the load balancer before it becomes a user-visible failure.
+        http1MaxPendingRequests: 200
+        maxRequestsPerConnection: 20
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 10s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+  subsets:
+    - name: stable
+      labels:
+        version: stable
+    - name: canary
+      labels:
+        version: canary

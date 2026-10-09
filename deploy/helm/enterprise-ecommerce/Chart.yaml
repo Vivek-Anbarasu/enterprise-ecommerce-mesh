@@ -1,0 +1,16 @@
+apiVersion: v2
+name: enterprise-ecommerce
+description: Enterprise e-commerce service mesh for Azure AKS
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - ecommerce
+  - microservices
+  - spring-boot
+  - aks
+maintainers:
+  - name: Platform Engineering
+    email: platform@enterprise-ecommerce.com
+annotations:
+  category: BusinessApplication

@@ -1,0 +1,272 @@
+{{/*
+Generates a Deployment, Service, PDB and HPA for every enabled service.
+
+One template for all ten services rather than ten near-identical files: the
+per-service differences are data (replicas, resources, ports), and expressing
+them as values is what stops the manifests drifting apart over time.
+*/}}
+{{- $root := . }}
+{{- range $name, $service := .Values.services }}
+{{- if $service.enabled }}
+{{- $fullName := printf "%s-%s" $root.Release.Name $name }}
+{{- $isHeadless := $service.headless | default false }}
+{{- $probePort := ternary ($service.managementPort | default 8081) $service.port $isHeadless }}
+{{- $replicas := $service.replicas | default 2 }}
+{{- if and $root.Values.autoscaling.enabled (not $isHeadless) }}
+{{- $replicas = $root.Values.autoscaling.minReplicas }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "ecommerce.labels" (dict "root" $root "serviceName" $name) | nindent 4 }}
+    app.kubernetes.io/component: {{ $service.tier | default "core" }}
+  annotations:
+    # Roll the pods when configuration changes, so an env edit is not a silent
+    # no-op until some unrelated deploy happens to restart them.
+    checksum/config: {{ toYaml $service.extraEnv | sha256sum }}
+spec:
+  {{- if not $root.Values.autoscaling.enabled }}
+  replicas: {{ $replicas }}
+  {{- end }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      {{- include "ecommerce.selectorLabels" (dict "root" $root "serviceName" $name) | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Keep full capacity during a rollout: a zero-downtime deploy must not
+      # reduce throughput while pods cycle.
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "ecommerce.labels" (dict "root" $root "serviceName" $name) | nindent 8 }}
+        app.kubernetes.io/component: {{ $service.tier | default "core" }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /actuator/prometheus
+        prometheus.io/port: {{ $probePort | quote }}
+        {{- if $root.Values.istio.enabled }}
+        sidecar.istio.io/inject: "true"
+        {{- if $root.Values.istio.revision }}
+        istio.io/rev: {{ $root.Values.istio.revision }}
+        {{- end }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ $root.Release.Name }}-workload
+      {{- with $root.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # Long enough for in-flight requests to drain and for the checkout saga to
+      # release any stock holds it still owns.
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: {{ $root.Values.podSecurity.runAsNonRoot }}
+        runAsUser: {{ $root.Values.podSecurity.runAsUser }}
+        fsGroup: {{ $root.Values.podSecurity.runAsUser }}
+        seccompProfile:
+          type: {{ $root.Values.podSecurity.seccompProfile }}
+      {{- if $root.Values.networkPolicies.enabled }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "ecommerce.selectorLabels" (dict "root" $root "serviceName" $name) | nindent 14 }}
+      {{- end }}
+      containers:
+        - name: {{ $name }}
+          image: {{ include "ecommerce.image" (dict "root" $root "service" $service) }}
+          imagePullPolicy: IfNotPresent
+          {{- if not $isHeadless }}
+          ports:
+            - name: http
+              containerPort: {{ $service.port }}
+          {{- else }}
+          ports:
+            - name: management
+              containerPort: {{ $probePort }}
+          {{- end }}
+          env:
+            {{- include "ecommerce.env" (dict "root" $root "service" $service "serviceName" $name) | nindent 12 }}
+          {{- if $root.Values.keyVault.enabled }}
+          volumeMounts:
+            - name: keyvault-secrets
+              mountPath: /mnt/secrets
+              readOnly: true
+            {{- if $root.Values.podSecurity.readOnlyRootFilesystem }}
+            - name: tmp
+              mountPath: /tmp
+            {{- end }}
+          {{- else if $root.Values.podSecurity.readOnlyRootFilesystem }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          {{- end }}
+          startupProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: {{ $probePort }}
+            {{- toYaml $root.Values.probes.startup | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: {{ $probePort }}
+            {{- toYaml $root.Values.probes.readiness | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: {{ $probePort }}
+            {{- toYaml $root.Values.probes.liveness | nindent 12 }}
+          resources:
+            {{- toYaml $service.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: {{ $root.Values.podSecurity.readOnlyRootFilesystem }}
+            capabilities:
+              drop: {{ toYaml $root.Values.podSecurity.dropCapabilities | nindent 16 }}
+      volumes:
+        {{- if $root.Values.keyVault.enabled }}
+        - name: keyvault-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: keyvault-provider
+        {{- end }}
+        {{- if $root.Values.podSecurity.readOnlyRootFilesystem }}
+        - name: tmp
+          emptyDir: {}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "ecommerce.labels" (dict "root" $root "serviceName" $name) | nindent 4 }}
+  {{- if and $service.ingress $service.ingress.enabled }}
+  annotations:
+    {{- toYaml $service.ingress.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  # Headless (no ClusterIP) for Kafka consumers: the pods must not be load
+  # balanced, because each consumer group member must own its partitions.
+  {{- if $isHeadless }}
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: management
+      port: {{ $probePort }}
+      targetPort: management
+  {{- else }}
+  type: ClusterIP
+  selector:
+    {{- include "ecommerce.selectorLabels" (dict "root" $root "serviceName" $name) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $service.port }}
+      targetPort: http
+  {{- end }}
+{{- if and $root.Values.autoscaling.enabled (not $isHeadless) }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $fullName }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "ecommerce.labels" (dict "root" $root "serviceName" $name) | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $fullName }}
+  minReplicas: {{ $root.Values.autoscaling.minReplicas }}
+  maxReplicas: {{ $root.Values.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $root.Values.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ $root.Values.autoscaling.targetMemoryUtilizationPercentage }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+    scaleDown:
+      # Slow scale-down: flapping replicas cost more than briefly idle ones.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
+{{- end }}
+{{- if $root.Values.pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $fullName }}-pdb
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "ecommerce.labels" (dict "root" $root "serviceName" $name) | nindent 4 }}
+spec:
+  # Keeps the service above zero ready pods during a node drain or cluster upgrade.
+  minAvailable: {{ $root.Values.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "ecommerce.selectorLabels" (dict "root" $root "serviceName" $name) | nindent 6 }}
+{{- end }}
+{{- if and $service.ingress $service.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "ecommerce.labels" (dict "root" $root "serviceName" $name) | nindent 4 }}
+  {{- with $service.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ $service.ingress.className }}
+  tls:
+    - hosts:
+        - {{ $service.ingress.host }}
+      secretName: {{ $service.ingress.tlsSecret }}
+  rules:
+    - host: {{ $service.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $name }}
+                port:
+                  name: http
+{{- end }}
+{{- end }}
+{{- end }}

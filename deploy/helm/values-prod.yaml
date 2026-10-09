@@ -1,0 +1,122 @@
+# Production values for the enterprise-ecommerce chart.
+#
+#   helm upgrade --install ecommerce deploy/helm/enterprise-ecommerce \
+#     -n ecommerce --create-namespace -f deploy/helm/values-prod.yaml
+#
+# No secret values belong in this file or in any file under source control.
+# Database credentials arrive from Key Vault via the CSI driver.
+
+global:
+  imageRegistry: acrenterprise.azurecr.io
+  meshEnv: aks-prod
+  logFormat: ecs
+  logLevelRoot: INFO
+  logLevelApp: INFO
+  # 10% on request paths is enough to diagnose an incident without the storage
+  # cost of full tracing.
+  tracingSampleRate: "0.1"
+  otlpEndpoint: http://jaeger-collector.observability.svc.cluster.local:4318/v1/traces
+  tenantDefault: public
+  imagePullSecrets:
+    - name: acr-pull
+
+istio:
+  enabled: true
+
+keyVault:
+  enabled: true
+  # Tenant and vault URI are cluster-specific; set them via --set or an
+  # environment-specific values file that is NOT committed.
+  vaultUri: ""
+  tenantId: ""
+
+infrastructure:
+  postgres:
+    host: ""
+    port: 5432
+  redis:
+    host: ecommerce-cache.redis.cache.windows.net
+    port: 6380
+  kafka:
+    # Azure Service Bus Kafka-compatible endpoint. Prefer this over an in-cluster
+    # Kafka: broker state leaves the cluster and reserved throughput is explicit.
+    bootstrapServers: "ecommerce.servicebus.windows.net:9093"
+  mongodb:
+    uri: ""
+
+services:
+  api-gateway:
+    replicas: 3
+    ingress:
+      enabled: true
+      className: azure/application-gateway
+      host: api.enterprise-ecommerce.com
+      tlsSecret: api-gateway-tls
+      annotations:
+        # AGIC fronts the cluster with an Application Gateway (WAF + TLS).
+        # ssl-redirect is not an AGIC annotation; TLS is terminated at the gateway.
+        appgw.ingress.kubernetes.io/health-probe-path: /actuator/health/readiness
+
+  order-service:
+    replicas: 4
+    extraEnv:
+      # 15 minutes is long enough for a shopper to complete payment and short
+      # enough that abandoned holds release quickly under peak load.
+      RESERVATION_TTL_SECONDS: "900"
+      OUTBOX_MAX_ATTEMPTS: "10"
+
+  payment-service:
+    replicas: 4
+    extraEnv:
+      # MUST be overridden here. The stub authorises any non-decline token and
+      # must never reach production; the service refuses to start otherwise.
+      PAYMENT_GATEWAY: production
+
+  inventory-service:
+    replicas: 4
+    extraEnv:
+      SWEEPER_INTERVAL_MS: "30000"
+      SWEEPER_BATCH_SIZE: "500"
+
+  product-catalog-service:
+    replicas: 4
+
+  shopping-cart-service:
+    replicas: 4
+
+  notification-service:
+    replicas: 3
+    extraEnv:
+      # Consumer concurrency is capped by partition count, so this must stay at
+      # or below order.events partitions.
+      KAFKA_CONCURRENCY: "6"
+
+  shipping-delivery-service:
+    replicas: 2
+
+  ai-orchestrator-service:
+    replicas: 2
+    extraEnv:
+      AI_PROVIDER: none
+
+# Tighter autoscaling for the critical checkout path; the AI tier is left
+# conservative because it is optional.
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 65
+  targetMemoryUtilizationPercentage: 75
+
+pdb:
+  enabled: true
+  minAvailable: 1
+
+observability:
+  prometheus:
+    enabled: true
+    retention: 30d
+  grafana:
+    enabled: true
+  jaeger:
+    enabled: true

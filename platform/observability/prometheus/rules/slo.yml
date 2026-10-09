@@ -1,0 +1,169 @@
+# Alerting and recording rules for the e-commerce SLOs.
+#
+# Design note: every alert below is actionable by an on-call engineer without
+# further investigation. Alerts that merely report a metric moving are noise and
+# get muted, which trains people to ignore the page.
+groups:
+  - name: mesh-recording
+    interval: 30s
+    rules:
+      # ---- Recording rules: expensive queries computed once, reused by rules.
+      - record: service:http_requests:rate5m
+        expr: sum by (application) (rate(http_server_requests_seconds_count[5m]))
+
+      - record: service:http_errors:rate5m
+        expr: sum by (application) (rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+
+      - record: service:latency:p95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (application, le) (rate(http_server_requests_seconds_bucket[5m])))
+
+      - record: service:latency:p99
+        expr: |
+          histogram_quantile(0.99,
+            sum by (application, le) (rate(http_server_requests_seconds_bucket[5m])))
+
+      - record: service:error_ratio:rate5m
+        expr: |
+          sum by (application) (rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+          /
+          clamp_min(sum by (application) (rate(http_server_requests_seconds_count[5m])), 0.001)
+
+      # Checkout success rate: orders that reached PAID, not merely HTTP 200.
+      # A failed saga returns 200-with-FAILED-status, so the HTTP error ratio
+      # would miss it entirely.
+      - record: checkout:success_ratio:rate5m
+        expr: |
+          sum(rate(mesh_business_events_total{domain="orders",outcome="paid"}[5m]))
+          /
+          clamp_min(sum(rate(mesh_business_events_total{domain="orders"}[5m])), 0.001)
+
+  - name: availability-slo
+    rules:
+      - alert: ServiceHighErrorRate
+        expr: service:error_ratio:rate5m > 0.05
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High 5xx rate on {{ $labels.application }}"
+          description: >-
+            {{ $value | humanizePercentage }} of requests to {{ $labels.application }}
+            are failing for 10 minutes. Check recent deploys and dependency health
+            before scaling.
+
+      - alert: CheckoutConversionCollapse
+        expr: checkout:success_ratio:rate5m < 0.8
+        for: 15m
+        labels:
+          severity: critical
+          runbook: docs/RUNBOOK.md#checkout
+        annotations:
+          summary: "Checkout success rate below 80%"
+          description: >-
+            Only {{ $value | humanizePercentage }} of checkouts are completing.
+            This is lost revenue, not just an error rate: check inventory
+            reservation failures and payment declines first.
+
+      - alert: ServiceLatencyBreached
+        expr: service:latency:p95 > 1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 latency above 1s on {{ $labels.application }}"
+          description: "p95 is {{ $value }}s. Investigate slow queries and lock contention."
+
+  - name: inventory-and-saga
+    rules:
+      # Stock contention means real shoppers are being turned away.
+      - alert: InventoryLockContention
+        expr: |
+          sum(rate(inventory_concurrent_update_total{application="inventory-service"}[5m])) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High optimistic-lock contention on inventory"
+          description: >-
+            Stock rows are contended. Consider partitioning hot SKUs by warehouse
+            or reducing the reservation TTL to shorten hold duration.
+
+      # An unpublished backlog means orders exist that no fulfilment service
+      # knows about. This is the alert that catches a broken outbox relay.
+      - alert: OutboxBacklogGrowing
+        expr: outbox_unpublished_total > 500
+        for: 10m
+        labels:
+          severity: critical
+          runbook: docs/RUNBOOK.md#outbox
+        annotations:
+          summary: "Order outbox relay is falling behind"
+          description: >-
+            {{ $value }} order events are unpublished. Paid orders are not reaching
+            fulfilment. Check the relay logs and Kafka connectivity.
+
+      - alert: OutboxPoisonEvents
+        expr: increase(outbox_dead_letter_total[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outbox events exceeded the retry limit"
+          description: "Some events were abandoned after repeated failure; replay from the outbox table."
+
+  - name: consumer-health
+    rules:
+      - alert: KafkaConsumerLagHigh
+        expr: |
+          sum by (application) (kafka_consumer_fetch_manager_records_lag) > 10000
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka consumer lag high on {{ $labels.application }}"
+          description: >-
+            Lag is {{ $value }}. Notifications and fulfilment are falling behind
+            real time. Scale consumers or check for a poison message.
+
+      - alert: DeadLetterQueueFilling
+        expr: |
+          sum by (application) (rate(messaging_dead_letter_total[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Messages are being dead-lettered on {{ $labels.application }}"
+          description: "Poison messages detected; inspect the .dlq topic."
+
+  - name: platform
+    rules:
+      - alert: PodCrashLooping
+        expr: |
+          sum by (namespace, pod) (rate(kube_pod_container_status_restarts_total[10m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container restarting in {{ $labels.namespace }}/{{ $labels.pod }}"
+
+      - alert: MemoryPressure
+        expr: |
+          sum by (namespace, pod) (kube_pod_container_resource_limits{resource="memory"})
+          /
+          clamp_min(sum by (namespace, pod) (kube_pod_container_resource_requests{resource="memory"}), 1)
+          > 0.95
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Memory requests close to limits on {{ $labels.pod }}"
+
+      - alert: NoHealthyReplicas
+        expr: |
+          sum by (namespace) (kube_deployment_status_replicas_available) == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Deployment has no available replicas in {{ $labels.namespace }}"
