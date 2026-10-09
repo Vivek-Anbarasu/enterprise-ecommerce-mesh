@@ -1,0 +1,191 @@
+# Reference Deployment + Service for one internal mesh service.
+#
+# This is a TEMPLATE: it documents the shape and the security posture applied to
+# every service. It is not applied directly (the filename starts with an
+# underscore and kustomize will not pick it up). Copy it per service, or use the
+# Helm chart, which generates this for all ten services from one values file.
+#
+# Differences from the gateway, and why:
+#   * No LoadBalancer/ingress - nothing but the gateway is internet-facing.
+#   * auth: service account token for service-to-service calls.
+#   * resources: sized per tier, not one size fits all.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: SERVICE_NAME_PLACEHOLDER
+  namespace: ecommerce
+  labels:
+    app.kubernetes.io/name: SERVICE_NAME_PLACEHOLDER
+    app.kubernetes.io/component: core
+    app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: SERVICE_NAME_PLACEHOLDER
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: SERVICE_NAME_PLACEHOLDER
+        app.kubernetes.io/component: core
+        app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8080"
+        # Roll pods when the config map changes, so an env change is not a
+        # silent no-op until the next unrelated deploy.
+        checksum/config: "REPLACED_BY_CI"
+    spec:
+      serviceAccountName: ecommerce-workload
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: SERVICE_NAME_PLACEHOLDER
+      # Long enough for in-flight requests to drain and the saga to release
+      # its stock holds.
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: SERVICE_NAME_PLACEHOLDER
+          image: acrenterprise.azurecr.io/ecommerce/SERVICE_NAME_PLACEHOLDER:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: SERVICE_NAME_PLACEHOLDER-config
+            - secretRef:
+                name: database-credentials
+          env:
+            - name: DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: SERVICE_NAME_PLACEHOLDER-db
+                  key: url
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: SERVICE_NAME_PLACEHOLDER-db
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: SERVICE_NAME_PLACEHOLDER-db
+                  key: password
+          startupProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests: { cpu: 200m, memory: 384Mi }
+            limits: { cpu: 1000m, memory: 1Gi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # readOnlyRootFilesystem is on, so any writable path must be declared.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: SERVICE_NAME_PLACEHOLDER
+  namespace: ecommerce
+  labels:
+    app.kubernetes.io/name: SERVICE_NAME_PLACEHOLDER
+    app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: SERVICE_NAME_PLACEHOLDER
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+# Bounds the blast radius of a bad deploy: at most one unavailable pod.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: SERVICE_NAME_PLACEHOLDER-pdb
+  namespace: ecommerce
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: SERVICE_NAME_PLACEHOLDER
+---
+# HPA on CPU plus a floor on replicas. A minimum of 2 means a node drain can
+# never reduce the service to zero ready pods.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: SERVICE_NAME_PLACEHOLDER-hpa
+  namespace: ecommerce
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: SERVICE_NAME_PLACEHOLDER
+  minReplicas: 2
+  maxReplicas: 12
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      # React quickly to a traffic spike.
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+    scaleDown:
+      # Scale down slowly; flapping costs more than a briefly oversized fleet.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60

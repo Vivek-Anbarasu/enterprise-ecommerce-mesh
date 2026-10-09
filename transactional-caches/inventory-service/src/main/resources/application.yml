@@ -1,0 +1,136 @@
+server:
+  port: ${SERVER_PORT:8083}
+  shutdown: graceful
+  tomcat:
+    threads:
+      max: ${TOMCAT_MAX_THREADS:200}
+      min-spare: 20
+    accept-count: 100
+    max-connections: 10000
+
+spring:
+  application:
+    name: inventory-service
+  main:
+    banner-mode: off
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  threads:
+    virtual:
+      # Java 21 virtual threads: stock operations are blocking JDBC, so this
+      # raises effective concurrency far above the platform thread pool.
+      enabled: true
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/inventory_db}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX:20}
+      minimum-idle: ${DB_POOL_MIN:5}
+      connection-timeout: 5000
+      # Never hold a pooled connection open across a Kafka publish.
+      auto-commit: true
+      data-source-properties:
+        # Abort a query rather than letting a stuck statement pin a worker.
+        statement_timeout: 10000
+        lock_timeout: 5000
+  jpa:
+    # Flyway owns the schema; Hibernate must never mutate it.
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
+        query:
+          fail_on_pagination_over_collection_fetch: true
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+    validate-on-migrate: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 1s
+  cache:
+    type: redis
+    redis:
+      time-to-live: 30s
+      cache-null-values: false
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${KAFKA_GROUP_ID:inventory-service}
+      auto-offset-reset: earliest
+    security:
+      # Provided by a mounted secret when TLS to the broker is enabled.
+      ssl-truststore-location: ${KAFKA_TRUSTSTORE_LOCATION:}
+      ssl-truststore-password: ${KAFKA_TRUSTSTORE_PASSWORD:}
+
+mesh:
+  environment: ${MESH_ENV:local}
+  tier: core
+  tenant:
+    # Anonymous catalogue reads still need a tenant; the gateway sets this from
+    # the token, and "public" is the safe fallback for storefront traffic.
+    required: false
+    default-tenant: public
+  inventory:
+    sweeper:
+      enabled: ${SWEEPER_ENABLED:true}
+      interval-ms: ${SWEEPER_INTERVAL_MS:60000}
+      batch-size: ${SWEEPER_BATCH_SIZE:200}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when-authorized
+      group:
+        readiness:
+          include: readinessState,db
+        liveness:
+          include: livenessState
+  health:
+    db:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_RATE:0.1}
+  otlp:
+    tracing:
+      endpoint: ${OTLP_ENDPOINT:http://jaeger-collector.observability.svc.cluster.local:4318/v1/traces}
+
+resilience4j:
+  retry:
+    instances:
+      stockMutation:
+        maxAttempts: 3
+        waitDuration: 100ms
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  structured:
+    format:
+      console: ${LOG_FORMAT:ecs}
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.enterprise.mesh: ${LOG_LEVEL_APP:INFO}

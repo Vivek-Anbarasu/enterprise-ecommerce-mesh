@@ -1,0 +1,251 @@
+server:
+  port: ${SERVER_PORT:8080}
+  shutdown: graceful
+  # Fail fast rather than serving traffic with a half-initialised context.
+  netty:
+    connection-timeout: 5s
+
+spring:
+  application:
+    name: api-gateway
+  main:
+    banner-mode: off
+  lifecycle:
+    timeout-per-shutdown-phase: 25s
+  cloud:
+    gateway:
+      server:
+        webflux:
+          # X-Forwarded-* are set by the mesh ingress; never trust client values.
+          forwarded:
+            enabled: true
+            for-header: X-Forwarded-For
+            proto-header: X-Forwarded-Proto
+            host-header: X-Forwarded-Host
+            x-forwarded-port-enabled: true
+          # Preserve the caller's Host so downstream can build absolute URLs.
+          preserve-host: false
+          # Do not expose internal service hostnames in error payloads.
+          include-exception-details: never
+      x-forwarded:
+        enabled: true
+      # Retry only idempotent requests to transiently failing backends.
+      retry:
+        enabled: true
+      default-filters:
+        # Strip hop-by-hop headers so internal topology is not leaked.
+        - RemoveRequestHeader=Cookie
+        - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_UNIQUE
+      routes:
+        # ---------------- Read-heavy, anonymously browsable ----------------
+        - id: product-catalog
+          uri: ${MESH_CATALOG_URI:lb://product-catalog-service}
+          predicates:
+            - Path=/api/products/**,/api/categories/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: catalogCircuitBreaker
+                fallbackUri: forward:/fallback/catalog
+
+        - id: review-rating
+          uri: ${MESH_REVIEW_URI:lb://review-rating-service}
+          predicates:
+            - Path=/api/reviews/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: '#{@tenantKeyResolver}'
+                redis-rate-limiter.replenishRate: ${RL_READ_REPLENISH:200}
+                redis-rate-limiter.burstCapacity: ${RL_READ_BURST:400}
+                redis-rate-limiter.requestedTokens: 1
+
+        # ---------------- Authenticated session traffic ----------------
+        - id: customer
+          uri: ${MESH_CUSTOMER_URI:lb://customer-service}
+          predicates:
+            - Path=/api/customers/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: '#{@tenantKeyResolver}'
+                redis-rate-limiter.replenishRate: ${RL_WRITE_REPLENISH:50}
+                redis-rate-limiter.burstCapacity: ${RL_WRITE_BURST:100}
+
+        - id: shopping-cart
+          uri: ${MESH_CART_URI:lb://shopping-cart-service}
+          predicates:
+            - Path=/api/cart/**,/api/carts/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: '#{@tenantKeyResolver}'
+                redis-rate-limiter.replenishRate: ${RL_CART_REPLENISH:100}
+                redis-rate-limiter.burstCapacity: ${RL_CART_BURST:200}
+
+        # ---------------- Checkout path: tight limits, must not be throttled
+        # into abandonment, but must not melt inventory either ----------
+        - id: order
+          uri: ${MESH_ORDER_URI:lb://order-service}
+          predicates:
+            - Path=/api/orders/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: '#{@tenantKeyResolver}'
+                redis-rate-limiter.replenishRate: ${RL_ORDER_REPLENISH:20}
+                redis-rate-limiter.burstCapacity: ${RL_ORDER_BURST:40}
+            - name: CircuitBreaker
+              args:
+                name: orderCircuitBreaker
+                fallbackUri: forward:/fallback/orders
+
+        - id: payment
+          uri: ${MESH_PAYMENT_URI:lb://payment-service}
+          predicates:
+            - Path=/api/payments/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: '#{@tenantKeyResolver}'
+                redis-rate-limiter.replenishRate: ${RL_PAYMENT_REPLENISH:20}
+                redis-rate-limiter.burstCapacity: ${RL_PAYMENT_BURST:40}
+            - name: CircuitBreaker
+              args:
+                name: paymentCircuitBreaker
+                fallbackUri: forward:/fallback/payments
+
+        - id: inventory
+          uri: ${MESH_INVENTORY_URI:lb://inventory-service}
+          predicates:
+            - Path=/api/inventory/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: '#{@tenantKeyResolver}'
+                redis-rate-limiter.replenishRate: ${RL_INVENTORY_REPLENISH:100}
+                redis-rate-limiter.burstCapacity: ${RL_INVENTORY_BURST:200}
+
+        # ---------------- Internal, mesh-only, never exposed publicly ------
+        - id: notifications-internal
+          uri: ${MESH_NOTIFICATION_URI:lb://notification-service}
+          predicates:
+            - Path=/internal/notifications/**
+          metadata:
+            # Istio AuthorizationPolicy restricts this to the mesh ingress.
+            exposure: internal
+
+        - id: shipping-internal
+          uri: ${MESH_SHIPPING_URI:lb://shipping-delivery-service}
+          predicates:
+            - Path=/internal/shipping/**
+          metadata:
+            exposure: internal
+
+        - id: ai-orchestrator
+          uri: ${MESH_AI_URI:lb://ai-orchestrator-service}
+          predicates:
+            - Path=/api/ai/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: aiCircuitBreaker
+                fallbackUri: forward:/fallback/ai
+
+        - id: swagger-ui
+          uri: ${SWAGGER_UI_URI:http://localhost:8082}
+          predicates:
+            - Path=/internal/docs/**
+          metadata:
+            exposure: internal
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      ssl:
+        enabled: ${REDIS_SSL_ENABLED:false}
+      timeout: 2s
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 5
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+    instances:
+      catalogCircuitBreaker:
+        baseConfig: default
+      orderCircuitBreaker:
+        baseConfig: default
+        failureRateThreshold: 40
+      paymentCircuitBreaker:
+        baseConfig: default
+        failureRateThreshold: 25
+      aiCircuitBreaker:
+        baseConfig: default
+        waitDurationInOpenState: 30s
+  timelimiter:
+    configs:
+      default:
+        timeoutDuration: 5s
+        cancelRunningFuture: true
+    instances:
+      catalogCircuitBreaker:
+        timeoutDuration: 3s
+      orderCircuitBreaker:
+        timeoutDuration: 10s
+      paymentCircuitBreaker:
+        timeoutDuration: 8s
+      aiCircuitBreaker:
+        timeoutDuration: 30s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when-authorized
+      group:
+        readiness:
+          include: readinessState,db,discoveryComposite
+        liveness:
+          include: livenessState
+  health:
+    redis:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_RATE:0.1}
+  otlp:
+    tracing:
+      endpoint: ${OTLP_ENDPOINT:http://jaeger-collector.observability.svc.cluster.local:4318/v1/traces}
+
+mesh:
+  environment: ${MESH_ENV:local}
+  tier: edge
+
+logging:
+  structured:
+    format:
+      console: ${LOG_FORMAT:ecs}
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.enterprise.mesh: ${LOG_LEVEL_APP:INFO}
+    org.springframework.cloud.gateway: ${LOG_LEVEL_GATEWAY:INFO}
