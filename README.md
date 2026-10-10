@@ -103,7 +103,7 @@ Every system microservices instance mounts a structural trace filter (`Correlati
 
 ### System Prerequisites
 Ensure your local environment includes:
-*   Java 21/25 JDK
+*   Java 25 JDK
 *   Apache Maven 3.9+
 *   Docker & Docker Compose
 

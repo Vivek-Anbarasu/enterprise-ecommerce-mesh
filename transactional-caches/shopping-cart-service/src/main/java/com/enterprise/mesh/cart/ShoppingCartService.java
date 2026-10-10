@@ -50,7 +50,7 @@ public class ShoppingCartService {
 
     @SuppressWarnings("unchecked")
     public CartSnapshot getCart(String tenantId, String customerId) {
-        CartSnapshot snapshot = (CartSnapshot) redisTemplate.opsForValue()
+        CartSnapshot snapshot = redisTemplate.opsForValue()
                 .get(key(tenantId, customerId));
         if (snapshot == null) {
             log.debug("No cart for customer {}; starting an empty one", customerId);

@@ -46,7 +46,7 @@ public class OrderExceptionHandler {
     @ExceptionHandler(CheckoutSagaOrchestrator.PaymentDeclinedException.class)
     public ProblemDetail handleDeclined(CheckoutSagaOrchestrator.PaymentDeclinedException ex) {
         log.info("Checkout rejected: payment declined");
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY,
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT,
                 "The payment was declined. No money has been taken.");
         problem.setTitle("Payment Declined");
         problem.setType(URI.create(BASE + "payment-declined"));

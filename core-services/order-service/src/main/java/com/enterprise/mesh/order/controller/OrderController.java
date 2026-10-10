@@ -60,7 +60,7 @@ public class OrderController {
         // an unsuccessful outcome, not a transport failure.
         String status = response.status();
         if (Order.OrderStatus.FAILED.name().equals(status)) {
-            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(response);
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT).body(response);
         }
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }

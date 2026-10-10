@@ -43,8 +43,8 @@ public class OrderEventListener {
         Map<String, Object> payload = message.getPayload();
 
         // Carry the trace and correlation ids into the handler's logs.
-        try (MDC.MDCCloseable eventId = MDC.putCloseable("event_id", metadata.eventId());
-             MDC.MDCCloseable tenant = MDC.putCloseable("tenant_id", metadata.tenantId())) {
+        try (MDC.MDCCloseable _ = MDC.putCloseable("event_id", metadata.eventId());
+             MDC.MDCCloseable _ = MDC.putCloseable("tenant_id", metadata.tenantId())) {
 
             log.debug("Received event type={} aggregate={} partition={} offset={}",
                     metadata.eventType(), metadata.aggregateId(),

@@ -128,7 +128,7 @@ public class GatewaySecurityConfig {
         });
         delegate.setPrincipalClaimName("sub");
 
-        return jwt -> Mono.justOrEmpty((AbstractAuthenticationToken) delegate.convert(jwt));
+        return jwt -> Mono.justOrEmpty(delegate.convert(jwt));
     }
 
     @Bean

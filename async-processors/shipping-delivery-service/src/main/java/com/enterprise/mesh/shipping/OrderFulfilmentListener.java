@@ -66,7 +66,7 @@ public class OrderFulfilmentListener {
             return;
         }
 
-        try (MDC.MDCCloseable eventId = MDC.putCloseable("event_id", metadata.eventId())) {
+        try (MDC.MDCCloseable _ = MDC.putCloseable("event_id", metadata.eventId())) {
             shippingService.createShipment(orderId, metadata.tenantId(), customerId,
                     "address-on-file", "standard", metadata.eventId());
         }

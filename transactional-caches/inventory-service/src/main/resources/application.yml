@@ -17,7 +17,7 @@ spring:
     timeout-per-shutdown-phase: 30s
   threads:
     virtual:
-      # Java 21 virtual threads: stock operations are blocking JDBC, so this
+      # Java 25 virtual threads: stock operations are blocking JDBC, so this
       # raises effective concurrency far above the platform thread pool.
       enabled: true
   datasource:
@@ -67,10 +67,10 @@ spring:
     consumer:
       group-id: ${KAFKA_GROUP_ID:inventory-service}
       auto-offset-reset: earliest
-    security:
+    ssl:
       # Provided by a mounted secret when TLS to the broker is enabled.
-      ssl-truststore-location: ${KAFKA_TRUSTSTORE_LOCATION:}
-      ssl-truststore-password: ${KAFKA_TRUSTSTORE_PASSWORD:}
+      trust-store-location: ${KAFKA_TRUSTSTORE_LOCATION:}
+      trust-store-password: ${KAFKA_TRUSTSTORE_PASSWORD:}
 
 mesh:
   environment: ${MESH_ENV:local}

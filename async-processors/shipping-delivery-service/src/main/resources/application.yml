@@ -32,8 +32,8 @@ spring:
       group-id: ${KAFKA_GROUP_ID:shipping-service}
       auto-offset-reset: earliest
       enable-auto-commit: false
-    security:
-      ssl-truststore-location: ${KAFKA_TRUSTSTORE_LOCATION:}
+    ssl:
+      trust-store-location: ${KAFKA_TRUSTSTORE_LOCATION:}
 
 mesh:
   environment: ${MESH_ENV:local}
