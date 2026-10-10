@@ -26,8 +26,8 @@ spring:
       # crash mid-dispatch replays the message rather than losing it.
       enable-auto-commit: false
       max-poll-records: 50
-    security:
-      ssl-truststore-location: ${KAFKA_TRUSTSTORE_LOCATION:}
+    ssl:
+      trust-store-location: ${KAFKA_TRUSTSTORE_LOCATION:}
 
 mesh:
   environment: ${MESH_ENV:local}

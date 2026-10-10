@@ -12,12 +12,12 @@
 #     --build-arg SERVICE_JAR=order-service/target/order-service-1.0.0.jar \
 #     --build-arg SERVICE_NAME=order-service -t order-service:1.0.0 .
 # ---------------------------------------------------------------------------
-ARG JDK_IMAGE=eclipse-temurin:21-jre-alpine
+ARG JDK_IMAGE=eclipse-temurin:25-jre-alpine
 
 # ---------- Stage 1: resolve dependencies ----------
 # Dependency resolution is its own stage so that editing source does not
 # invalidate the (slow) Maven layer.
-FROM maven:3.9-eclipse-temurin-21-alpine AS deps
+FROM maven:3.9-eclipse-temurin-25-alpine AS deps
 WORKDIR /build
 
 # Copy only descriptors first for maximum layer caching.
@@ -71,8 +71,11 @@ RUN java -Djarmode=layertools -jar /app/application.jar extract
 # Correct ownership: the build ran as root.
 USER 10001:10001
 
+# Container awareness (cgroup limits) is on by default since JDK 10 and the
+# -XX:+UseContainerSupport flag was removed outright in modern JDKs, so passing
+# it would abort startup with "Unrecognized VM option".
 ENV SERVICE_NAME=${SERVICE_NAME} \
-    JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError -XX:+UseContainerSupport" \
+    JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError" \
     SPRING_PROFILES_ACTIVE=production
 
 # 8080 for HTTP services; 8081 for the headless notification worker. Override
