@@ -21,7 +21,11 @@ global:
     - name: acr-pull
 
 istio:
-  enabled: true
+  mode: ambient
+  waypoint:
+    enabled: true
+    name: waypoint
+    replicas: 3
 
 keyVault:
   enabled: true
@@ -29,6 +33,35 @@ keyVault:
   # environment-specific values file that is NOT committed.
   vaultUri: ""
   tenantId: ""
+
+# ---------------------------------------------------------------------------
+# Edge: Azure Application Gateway for Containers.
+#
+# ingress-nginx reached end of life in March 2026, so the north-south path is
+# now AGC driven through Gateway API rather than through the frozen Ingress API.
+# See docs/AKS-DEPLOYMENT.md for provisioning the ALB Controller.
+# ---------------------------------------------------------------------------
+apiGateway:
+  enabled: true
+  gatewayClassName: azure-alb-external
+  name: public-edge
+  # ALB-managed strategy: the controller creates the Azure resources from this
+  # ApplicationLoadBalancer reference and owns their lifecycle.
+  albName: ecommerce-agc
+  albNamespace: ecommerce
+  listener:
+    port: 443
+    protocol: HTTPS
+    hostname: api.enterprise-ecommerce.com
+  certificate:
+    secretName: api-gateway-tls
+    syncFromKeyVault: true
+  # MUST match the delegated AGC subnet. AGC has no mesh identity, so this is
+  # the only thing restricting who may reach the gateway besides the WAF.
+  # The placeholder below is deliberately not a real subnet: leaving it
+  # unedited produces a gateway that answers nothing.
+  backendCidrs:
+    - "10.0.1.0/24"
 
 infrastructure:
   postgres:
@@ -47,15 +80,6 @@ infrastructure:
 services:
   api-gateway:
     replicas: 3
-    ingress:
-      enabled: true
-      className: azure/application-gateway
-      host: api.enterprise-ecommerce.com
-      tlsSecret: api-gateway-tls
-      annotations:
-        # AGIC fronts the cluster with an Application Gateway (WAF + TLS).
-        # ssl-redirect is not an AGIC annotation; TLS is terminated at the gateway.
-        appgw.ingress.kubernetes.io/health-probe-path: /actuator/health/readiness
 
   order-service:
     replicas: 4

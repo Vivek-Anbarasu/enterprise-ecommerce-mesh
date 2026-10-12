@@ -1,0 +1,25 @@
+# Ambient mesh overlay: the shared Layer 7 waypoint and its policies.
+#
+# Apply AFTER the base, and only once the control plane is installed with
+# ambient support (`istioctl install --set profile=ambient`). The Gateway API
+# CRDs are required; see docs/AKS-DEPLOYMENT.md.
+#
+#   kubectl apply -k platform/kubernetes/istio
+#
+# The Helm chart (deploy/helm/enterprise-ecommerce) renders the same objects
+# from values, and is what a real deployment should use. This overlay exists so
+# the mesh configuration can be read and audited with plain kubectl.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ecommerce
+
+resources:
+  - waypoint.yaml
+  - policies.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+      app.kubernetes.io/managed-by: kustomize
+    includeSelectors: false

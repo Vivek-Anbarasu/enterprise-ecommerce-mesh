@@ -1,0 +1,114 @@
+{{/*
+North-south edge: Azure Application Gateway for Containers.
+
+Why a Gateway and not an Ingress:
+
+  * The Ingress API is frozen. ingress-nginx reached end of life in March 2026
+    and the AKS application-routing add-on is supported only until November
+    2026, so anything built on Ingress has no long-term path.
+  * AGC's built-in Istio integration explicitly does not support ambient mode,
+    so the automatic sidecar-based mesh integration is not available to us.
+  * Gateway API is already in use here for the mesh's waypoint, so the edge and
+    the interior speak one API rather than two.
+
+Why the edge port is carved out of STRICT mTLS:
+
+  The AGC data plane runs OUTSIDE the cluster. It has no SPIFFE identity, does
+  not speak HBONE, and cannot be given either. A namespace-wide `STRICT`
+  PeerAuthentication therefore rejects its traffic outright, and no
+  AuthorizationPolicy exception can fix that, because an unauthenticated peer
+  cannot be authorized.
+
+  So api-gateway's serving port is PERMISSIVE. Everything east of the gateway
+  stays STRICT, which is where the trust actually matters: the gateway's calls
+  into the checkout path are still mesh-authenticated, and those pods still
+  refuse plaintext from anything.
+
+  The cost is that the AGC -> api-gateway hop is plaintext inside the VNet and
+  relies on NetworkPolicy plus the AGC/WAF for its integrity. That is a
+  deliberate, bounded trade. The fully-authenticated alternative is to put an
+  Istio ingress gateway (gatewayClassName: istio) between AGC and the
+  application, giving AGC a mesh peer to authenticate against at the cost of
+  one more L7 hop.
+*/}}
+{{- if and .Values.apiGateway .Values.apiGateway.enabled }}
+{{- $root := . }}
+{{- $agc := .Values.apiGateway }}
+{{- $gatewayService := index .Values.services "api-gateway" }}
+{{- if not $gatewayService.enabled }}
+{{- fail "apiGateway.enabled requires services.api-gateway.enabled: the Gateway has no backend otherwise." }}
+{{- end }}
+{{- if and (not $agc.albName) (not $agc.albId) }}
+{{- fail "Set either apiGateway.albName + albNamespace (ALB-managed) or apiGateway.albId + albFrontend (BYO)." }}
+{{- end }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ $agc.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ecommerce.labels" (dict "root" $root "serviceName" "api-gateway") | nindent 4 }}
+  {{- if $agc.albId }}
+  annotations:
+    # BYO: point at an Application Gateway for Containers you provisioned.
+    alb.networking.azure.io/alb-id: {{ $agc.albId }}
+    alb.networking.azure.io/alb-frontend: {{ $agc.albFrontend }}
+  {{- else }}
+  annotations:
+    # ALB-managed: the controller creates and owns the Azure resources from
+    # this ApplicationLoadBalancer reference.
+    alb.networking.azure.io/alb-name: {{ $agc.albName }}
+    alb.networking.azure.io/alb-namespace: {{ $agc.albNamespace | default $root.Release.Namespace }}
+  {{- end }}
+spec:
+  gatewayClassName: {{ $agc.gatewayClassName }}
+  listeners:
+    - name: https
+      port: {{ $agc.listener.port }}
+      protocol: {{ $agc.listener.protocol }}
+      hostname: {{ $agc.listener.hostname | quote }}
+      tls:
+        # Terminate here. Application Gateway for Containers performs the TLS
+        # offload and re-encrypts to the backend only where a
+        # BackendTLSPolicy says so; by default the hop to the pod is plaintext
+        # inside the VNet, which is why the port carve-out below exists.
+        mode: Terminate
+        certificateRefs:
+          # Must be a Secret in this namespace. AGC cannot read a Key Vault
+          # certificate reference directly, so the Secrets Store CSI driver
+          # syncs it (see templates/tls-certificate.yaml).
+          - kind: Secret
+            group: ""
+            name: {{ $agc.certificate.secretName }}
+      allowedRoutes:
+        namespaces:
+          # Same namespace only. The route below lives here too, so there is no
+          # reason to widen this, and widening it would let any namespace in
+          # the mesh attach a route to the public edge.
+          from: Same
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $agc.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ecommerce.labels" (dict "root" $root "serviceName" "api-gateway") | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ $agc.name }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: https
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: api-gateway
+          port: {{ $gatewayService.port }}
+          # Preserve the client address for the gateway's rate limiting and for
+          # abuse investigation. Without it every request looks like it came
+          # from the same place.
+          weight: 1
+{{- end }}

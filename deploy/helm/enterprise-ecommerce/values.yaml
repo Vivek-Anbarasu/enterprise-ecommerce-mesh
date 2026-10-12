@@ -15,11 +15,43 @@ global:
   # Shared by every service; used for rate limiting and tenant resolution.
   tenantDefault: public
 
-# Inject the Istio sidecar. Disable for workloads that need no mesh features;
-# a sidecar costs ~40MB and a few seconds of startup per pod.
+# ---------------------------------------------------------------------------
+# Istio Ambient mode: ztunnel (shared L4) + optional waypoint (shared L7).
+#
+# Ambient removes the sidecar entirely. Every pod in the namespace is covered by
+# the per-node ztunnel daemon, so mTLS and L4 identity cost no pod memory, need
+# no injection webhook, and never restart an application when the mesh is
+# upgraded. Layer 7 features are opt-in per service with `waypoint: true`.
+# ---------------------------------------------------------------------------
 istio:
-  enabled: true
-  revision: ""
+  # ambient | none. Set to `none` for a cluster with no mesh installed; the
+  # chart then renders no mesh policy at all.
+  mode: ambient
+
+  # Name of an OpenTelemetry provider defined in the istiod MeshConfig
+  # `extensionProviders` block. Left empty by default so the chart renders
+  # nothing that would be rejected by a control plane without that definition.
+  # See docs/AKS-DEPLOYMENT.md for the Jaeger definition.
+  tracingProvider: ""
+
+  waypoint:
+    # Required by any service flagged `waypoint: true`. Turning it off while
+    # services are still enrolled silently drops them back to L4 only, because
+    # ztunnel routes straight to the destination when no waypoint answers.
+    enabled: true
+    name: waypoint
+    # `service` handles traffic addressed to a Kubernetes Service, which is what
+    # the gateway and every microservice actually dial. `workload` would be
+    # needed only for traffic sent to a pod IP, which this platform does not do.
+    for: service
+    replicas: 2
+    resources:
+      requests: { cpu: 200m, memory: 256Mi }
+      limits: { cpu: "1", memory: 1Gi }
+    # A waypoint serves the whole namespace, so it is a shared dependency for
+    # every enrolled service. Keep it above the PDB floor.
+    pdb:
+      minAvailable: 1
 
 # Key Vault CSI driver integration. Secrets are mounted as files, so no secret
 # ever appears in an environment variable or in etcd.
@@ -71,16 +103,16 @@ services:
     tier: edge
     replicas: 3
     port: 8080
+    # No waypoint. The gateway is the edge: its traffic arrives from the
+    # ingress controller, and Istio models ingress-to-service separately from
+    # east-west traffic, so it does not traverse the destination waypoint
+    # anyway. Edge filtering (tenant resolution, rate limiting) stays in Spring
+    # Cloud Gateway, where the business context lives. ztunnel still gives it
+    # mTLS on every call it makes downstream.
+    waypoint: false
     image:
       repository: api-gateway
       tag: ""            # defaults to .Chart.AppVersion
-    ingress:
-      enabled: true
-      className: nginx
-      host: api.enterprise-ecommerce.com
-      tlsSecret: api-gateway-tls
-      annotations:
-        nginx.ingress.kubernetes.io/ssl-redirect: "true"
     resources:
       requests: { cpu: 250m, memory: 512Mi }
       limits: { cpu: "1", memory: 1Gi }
@@ -96,6 +128,9 @@ services:
     tier: edge
     replicas: 3
     port: 8085
+    # Read-heavy and fanned out by the gateway: needs L7 request-level
+    # balancing so one hot pod is not pinned by a long-lived client connection.
+    waypoint: true
     image: { repository: product-catalog-service }
     database: catalog
     mongodb: true
@@ -109,6 +144,7 @@ services:
     tier: edge
     replicas: 2
     port: 8088
+    waypoint: true
     image: { repository: review-rating-service }
     database: reviews
     mongodb: true
@@ -122,6 +158,7 @@ services:
     tier: edge
     replicas: 2
     port: 8090
+    waypoint: true
     image: { repository: ai-orchestrator-service }
     database: ai
     mongodb: true
@@ -136,8 +173,17 @@ services:
     tier: core
     replicas: 3
     port: 8082
+    waypoint: true
     image: { repository: order-service }
     database: orders
+    # Progressive rollout. `stable` and `canary` are the real Services the
+    # waypoint balances between, selected by label rather than by a separate
+    # registry. Disabled by default: with it off the chart renders a single
+    # route to the one Service and there is no traffic split to reason about.
+    canary:
+      enabled: false
+      weight: 5
+      label: canary
     resources:
       requests: { cpu: 400m, memory: 768Mi }
       limits: { cpu: "2", memory: 1536Mi }
@@ -149,6 +195,10 @@ services:
     tier: core
     replicas: 3
     port: 8084
+    # Charged by this service. The waypoint gives request-level retries and
+    # outlier ejection in front of it, so a stalling pod is pulled out of the
+    # pool instead of timing out every shopper who reaches it.
+    waypoint: true
     image: { repository: payment-service }
     database: payments
     resources:
@@ -163,6 +213,7 @@ services:
     tier: core
     replicas: 3
     port: 8083
+    waypoint: true
     image: { repository: inventory-service }
     database: inventory
     resources:
@@ -176,6 +227,7 @@ services:
     tier: edge
     replicas: 3
     port: 8086
+    waypoint: true
     image: { repository: shopping-cart-service }
     resources:
       requests: { cpu: 150m, memory: 256Mi }
@@ -188,6 +240,7 @@ services:
     tier: core
     replicas: 2
     port: 8087
+    waypoint: true
     image: { repository: customer-service }
     database: customers
     resources:
@@ -199,6 +252,11 @@ services:
     enabled: true
     tier: async
     replicas: 2
+    # No waypoint, and it has no HTTP business surface at all: a pure Kafka
+    # consumer whose only endpoint is actuator for probes. L7 processing has
+    # nothing to parse here, so it would be pure overhead. It still gets the
+    # full ztunnel L4 treatment (mTLS, identity, L4 telemetry) for free.
+    waypoint: false
     # Headless worker: no business HTTP port, only actuator.
     headless: true
     managementPort: 8081
@@ -214,12 +272,79 @@ services:
     tier: async
     replicas: 2
     port: 8089
+    # Despite sitting on the async tier, this one DOES need a waypoint: it
+    # exposes an /internal/shipping REST surface for carrier webhooks. Path
+    # level authorisation of that surface is an L7 rule, and a rule ztunnel
+    # cannot evaluate would be rejected as unsafe rather than ignored.
+    waypoint: true
     image: { repository: shipping-delivery-service }
     database: shipping
     resources:
       requests: { cpu: 200m, memory: 384Mi }
       limits: { cpu: 750m, memory: 768Mi }
     extraEnv: {}
+
+# ---------------------------------------------------------------------------
+# North-south edge: Azure Application Gateway for Containers (AGC).
+#
+# Replaces ingress-nginx, whose upstream project reached end of life in March
+# 2026. AGC is Azure-managed: the ALB Controller runs in-cluster but the data
+# plane lives outside the cluster, so there is no proxy pod and no ingress
+# namespace to secure.
+#
+# This is a Gateway API `Gateway`, not an `Ingress`. The Ingress API is frozen,
+# AGC's Istio extension does not support ambient mode, and Gateway API is the
+# same API the mesh's waypoint already uses.
+# ---------------------------------------------------------------------------
+apiGateway:
+  enabled: true
+  # Installed by the ALB Controller (helm chart or AKS add-on).
+  gatewayClassName: azure-alb-external
+  name: public-edge
+
+  # Deployment strategy. Leave `albName`/`albNamespace` empty for BYO (you
+  # created the Azure resources yourself) and set `albId`/`albFrontend`
+  # instead. Exactly one of the two must be filled in.
+  #
+  # The defaults below are placeholders so that `helm template` and CI render
+  # the chart out of the box. They name a resource that does not exist, so the
+  # Gateway will not become Programmed until they point at a real
+  # ApplicationLoadBalancer. Production overrides them in values-prod.yaml.
+  albName: ecommerce-agc       # managed by the ALB Controller
+  albNamespace: ecommerce
+  albId: ""                   # BYO: resource ID of the Application Gateway for Containers
+  albFrontend: ""             # BYO: name of its frontend
+
+  listener:
+    # AGC only supports 80 and 443. It does not listen on arbitrary ports.
+    port: 443
+    protocol: HTTPS
+    hostname: api.enterprise-ecommerce.com
+
+  # TLS.
+  #
+  # AGC cannot reference a Key Vault certificate directly: its certificates
+  # must be a Kubernetes Secret inside the cluster. The Secrets Store CSI
+  # driver syncs it from Key Vault on a schedule, so the certificate is still
+  # rotated in Key Vault and never committed to source control.
+  #
+  # `secretName` must match the SecretProviderClass objectName in
+  # templates/tls-certificate.yaml.
+  certificate:
+    secretName: api-gateway-tls
+    # In-cluster Secret containing tls.crt / tls.key, synced from Key Vault.
+    syncFromKeyVault: true
+
+  # Source addresses the AGC data plane presents to backend pods. Consumed by
+  # both the AuthorizationPolicy (ipBlocks) and the NetworkPolicy, because AGC
+  # has no mesh identity to authorize by.
+  #
+  # SET THIS to the delegated AGC subnet. The placeholder below will not match
+  # anything and every request will 503. Verify with:
+  #   kubectl -n ecommerce logs deploy/ecommerce-api-gateway | head
+  # or from a pod: conntrack / the api-gateway access log's source address.
+  backendCidrs:
+    - "10.0.0.0/24"
 
 # ---------------------------------------------------------------------------
 # Platform components installed alongside the mesh.
@@ -245,6 +370,33 @@ podSecurity:
 networkPolicies:
   enabled: true
   defaultDeny: true
+
+# ---------------------------------------------------------------------------
+# Mesh-level traffic policy, enforced by the waypoint rather than by client
+# code. A slow dependency can then not exhaust the caller's connection pool.
+# ---------------------------------------------------------------------------
+trafficPolicies:
+  enabled: true
+  # Whole-request budget across every try, and the budget for one attempt.
+  timeout: 10s
+  perTryTimeout: 3s
+  retry:
+    attempts: 2
+    # Only 5xx that mean "the backend did not answer this request". 500 is
+    # deliberately absent: it usually means the backend DID process the
+    # request and failed afterwards, so replaying it is not free of charge.
+    codes:
+      - 502
+      - 503
+      - 504
+    # ONLY idempotent verbs. Retrying POST /payments would charge a shopper
+    # twice for a single order. The rule is split by method rather than
+    # applied globally, because the gateway's clients are not all safe to
+    # replay.
+    methods:
+      - GET
+      - HEAD
+      - OPTIONS
 
 autoscaling:
   enabled: true

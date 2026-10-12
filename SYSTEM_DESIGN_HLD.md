@@ -122,11 +122,20 @@ centralised retry policy.
 
 The retry configuration is the subtle part: it must not retry non-idempotent
 operations. A mesh-level retry on `POST /payments` would double-charge customers,
-so retries are restricted to transport failures and 5xx, with the payment and
-order paths governed by application-level idempotency instead.
+so the retry rule matches idempotent verbs only, and retries just the 5xx that
+mean the backend never answered — `502`, `503`, `504`. `500` is excluded on
+purpose: it usually means the backend *did* process the request and failed
+afterwards, so replaying it is not free of charge. The payment and order paths
+are additionally governed by application-level idempotency.
 
-Istio injection is opt-in per namespace rather than cluster-wide, because a
-sidecar costs memory and startup latency on every pod.
+The mesh runs in **ambient mode**: a shared per-node `ztunnel` gives every pod
+mTLS and identity at no per-pod cost, and a shared per-namespace **waypoint**
+supplies Layer 7 only for the services that need request-level routing, retries
+or path-level authorization. Nothing is injected into the application, so
+patching a mesh CVE does not restart a single application pod. Layer 7 is
+enrolled per destination service rather than per namespace, so a Kafka-only
+consumer does not pay for HTTP processing it never receives. See
+[docs/Istio.md](docs/Istio.md).
 
 ## 10. Multi-tenancy resolved once, verified twice
 

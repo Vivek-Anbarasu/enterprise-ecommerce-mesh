@@ -11,18 +11,22 @@ metadata:
 data:
   SERVER_PORT: "8080"
   MESH_ENV: "aks-prod"
-  # lb:// resolves through the Istio service registry; the short names match the
-  # Service objects below, not the pod names.
-  MESH_CATALOG_URI: "lb://product-catalog-service"
-  MESH_REVIEW_URI: "lb://review-rating-service"
-  MESH_CUSTOMER_URI: "lb://customer-service"
-  MESH_CART_URI: "lb://shopping-cart-service"
-  MESH_ORDER_URI: "lb://order-service"
-  MESH_PAYMENT_URI: "lb://payment-service"
-  MESH_INVENTORY_URI: "lb://inventory-service"
-  MESH_AI_URI: "lb://ai-orchestrator-service"
-  MESH_NOTIFICATION_URI: "lb://notification-service"
-  MESH_SHIPPING_URI: "lb://shipping-delivery-service"
+  # Downstream targets are plain http:// against Kubernetes Service DNS names.
+  # There is no service registry in the gateway: CoreDNS resolves the names and
+  # Istio provides mTLS and L7 routing, so the gateway keeps no registry in
+  # memory and sends no discovery heartbeats. Instance selection is handled by
+  # kube-proxy/Envoy. The short names must match the Service objects exactly.
+  MESH_CATALOG_URI: "http://product-catalog-service:8085"
+  MESH_REVIEW_URI: "http://review-rating-service:8088"
+  MESH_CUSTOMER_URI: "http://customer-service:8087"
+  MESH_CART_URI: "http://shopping-cart-service:8086"
+  MESH_ORDER_URI: "http://order-service:8082"
+  MESH_PAYMENT_URI: "http://payment-service:8084"
+  MESH_INVENTORY_URI: "http://inventory-service:8083"
+  MESH_AI_URI: "http://ai-orchestrator-service:8090"
+  # Kafka worker: no business port, actuator management port only.
+  MESH_NOTIFICATION_URI: "http://notification-service:8081"
+  MESH_SHIPPING_URI: "http://shipping-delivery-service:8089"
   REDIS_HOST: "redis-cache.redis.svc.cluster.local"
   REDIS_PORT: "6379"
   KAFKA_BOOTSTRAP_SERVERS: "kafka.messaging.svc.cluster.local:9092"

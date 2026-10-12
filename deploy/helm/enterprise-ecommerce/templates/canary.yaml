@@ -1,0 +1,67 @@
+{{/*
+Progressive rollout Services.
+
+A DestinationRule subset was a label selector that did not have to exist, so a
+typo in a subset label silently sent 100% of traffic to the wrong pool while
+`istioctl analyze` stayed quiet. A Gateway API `backendRefs` entry can only name
+a Service that is really there, so a canary is now a thing that either works or
+fails to apply.
+
+Selection is on `mesh.enterprise-ecommerce.io/rollout`, which the generated
+Deployment stamps onto its pods. To run a canary, change the label on a second
+Deployment to the canary value; the two Services then select the two pools and
+the HTTPRoute in templates/istio.yaml splits between them by weight.
+*/}}
+{{- if and .Values.istio (eq (.Values.istio.mode | default "none") "ambient") }}
+{{- $root := . }}
+{{- $ambient := eq (.Values.istio.mode | default "none") "ambient" }}
+{{- range $name, $service := .Values.services }}
+{{- if and $service.enabled $service.waypoint $service.canary $service.canary.enabled }}
+{{- $canaryLabel := $service.canary.label | default "canary" }}
+{{- $useWaypoint := and $ambient $root.Values.istio.waypoint.enabled $service.waypoint }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-stable
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "ecommerce.labels" (dict "root" $root "serviceName" $name) | nindent 4 }}
+    {{- if $useWaypoint }}
+    # Each rollout Service is a distinct destination, so each one has to be
+    # enrolled in the waypoint separately. Forgetting this would put canary
+    # traffic through the waypoint while stable traffic bypassed it.
+    istio.io/use-waypoint: {{ $root.Values.istio.waypoint.name }}
+    {{- end }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "ecommerce.selectorLabels" (dict "root" $root "serviceName" $name) | nindent 4 }}
+    mesh.enterprise-ecommerce.io/rollout: stable
+  ports:
+    - name: http
+      port: {{ $service.port }}
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-{{ $canaryLabel }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "ecommerce.labels" (dict "root" $root "serviceName" $name) | nindent 4 }}
+    {{- if $useWaypoint }}
+    istio.io/use-waypoint: {{ $root.Values.istio.waypoint.name }}
+    {{- end }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "ecommerce.selectorLabels" (dict "root" $root "serviceName" $name) | nindent 4 }}
+    mesh.enterprise-ecommerce.io/rollout: {{ $canaryLabel }}
+  ports:
+    - name: http
+      port: {{ $service.port }}
+      targetPort: http
+{{- end }}
+{{- end }}
+{{- end }}

@@ -1,35 +1,170 @@
 {{/*
-Istio policy. Rendered only when istio.enabled is true, so the chart also works
-against a cluster without the mesh.
+Istio Ambient mode policy.
+
+Rendered only when `istio.mode: ambient`, so the chart still installs against a
+cluster with no mesh installed.
+
+Ambient splits policy enforcement across TWO different proxies, and getting
+this wrong fails closed or open depending on which mistake you make:
+
+  * ztunnel (L4, per node) enforces policies that TARGET a workload with a
+    `selector`. It understands only L4 attributes: principals, namespaces,
+    ipBlocks, ports and the source/destination conditions. An L7 attribute
+    (path, method, header) does not get ignored: ztunnel fails safe and turns
+    the policy into a blanket DENY. So no selector-targeted policy in this
+    file may contain an L7 attribute.
+
+  * the waypoint (L7, per namespace) enforces policies ATTACHED with
+    `targetRefs` to a Service or to the waypoint Gateway. Those are where the
+    path and method rules live.
+
+One more consequence worth stating plainly: ztunnel enforces on the RECEIVING
+side of a connection. A namespace-wide ALLOW policy listing destination hosts
+is therefore an ingress policy that happens to look like an egress policy, and
+it provides no egress containment at all. Real egress control in this chart
+comes from NetworkPolicy (templates/serviceaccount.yaml); hostname-level egress
+control would need a waypoint deployed as an egress gateway, which this release
+does not do.
 */}}
-{{- if .Values.istio.enabled }}
+{{- if and .Values.istio (eq (.Values.istio.mode | default "none") "ambient") }}
+{{- $root := . }}
+{{- $ns := .Release.Namespace }}
+{{- $wp := .Values.istio.waypoint }}
+{{- $wpPrincipal := printf "cluster.local/ns/%s/sa/%s" $ns $wp.name }}
+{{- $workloadPrincipal := printf "cluster.local/ns/%s/sa/%s-workload" $ns .Release.Name }}
+{{- $gatewayPrincipal := printf "cluster.local/ns/%s/sa/%s-gateway" $ns .Release.Name }}
+# ---------------------------------------------------------------------------
+# 1. Transport security, enforced by ztunnel on every pod in the namespace.
+# ---------------------------------------------------------------------------
 apiVersion: security.istio.io/v1
 kind: PeerAuthentication
 metadata:
   name: default
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $ns }}
 spec:
   mtls:
-    # STRICT rather than PERMISSIVE: permissive silently allows plaintext, so a
-    # misconfigured service quietly loses transport encryption.
+    # STRICT rather than PERMISSIVE, which is the ambient default. PERMISSIVE
+    # silently accepts plaintext, so one misconfigured workload quietly loses
+    # transport encryption with nothing in the logs to say so.
     mode: STRICT
+{{- $gatewaySvc := index .Values.services "api-gateway" }}
+{{- if and .Values.apiGateway .Values.apiGateway.enabled $gatewaySvc.enabled }}
 ---
-# Deny by default. Istio evaluates deny policies first, so ALLOW rules can only
-# ever narrow access further.
+# The one deliberate exception to STRICT above.
+#
+# Application Gateway for Containers runs its data plane OUTSIDE the cluster.
+# It has no SPIFFE identity, does not speak HBONE, and there is no mechanism to
+# give it either. A strict receiver therefore refuses its traffic outright, and
+# no AuthorizationPolicy can rescue it: an unauthenticated peer cannot be
+# authorized, only tolerated.
+#
+# So the edge port is PERMISSIVE. Everything east of the gateway - which is
+# where the trust actually matters, including the whole checkout path - stays
+# STRICT and still refuses plaintext.
+#
+# `portLevelMtls` only takes effect when a selector is present, which is why
+# this is a workload-scoped policy rather than a field on the namespace one.
+# istiod compiles the pair into a ztunnel rule that rejects unauthenticated
+# traffic to every port except this one.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: api-gateway-edge-port
+  namespace: {{ $ns }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-gateway
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    # The WORKLOAD port, not the Service port. They happen to be the same here
+    # (8080), but that is a coincidence of this chart and not something to rely
+    # on.
+    {{ $gatewaySvc.port }}:
+      mode: PERMISSIVE
+{{- end }}
+---
+# ---------------------------------------------------------------------------
+# 2. Authorization, L4. Every rule below uses only L4 attributes so that ztunnel
+#    can actually enforce it.
+# ---------------------------------------------------------------------------
+# Deny everything not explicitly allowed. DENY policies are evaluated first, so
+# an ALLOW rule can only ever narrow this further.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
   name: default-deny
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $ns }}
 spec: {}
 ---
-# Allow the ingress controller to reach the gateway, and the gateway to reach
-# business services.
+# Kubelet health probes are exempt from mesh policy: ambient SNATs them to a
+# link-local address and skips enforcement for exactly that address, because
+# the node has no identity a policy could check. No rule is needed here.
+#
+# The gateway is the one mesh workload with no waypoint of its own, so its
+# ztunnel is the enforcement point. Unlike every other service it is entered by
+# something that has no mesh identity at all, so it is authorized by source
+# address rather than by principal.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
-  name: allow-mesh-traffic
-  namespace: {{ .Release.Namespace }}
+  name: gateway-edge-only
+  namespace: {{ $ns }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-gateway
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  action: ALLOW
+  rules:
+    # Application Gateway for Containers. ipBlocks is an L4 attribute so ztunnel
+    # can enforce it, but it is addressing rather than identity, and AGC does not
+    # spoof it. It must be kept in step with the NetworkPolicy of the same name;
+    # a policy that allows one and not the other is a policy that does not work.
+    {{- if and .Values.apiGateway .Values.apiGateway.enabled }}
+    - from:
+        - source:
+            ipBlocks:
+              {{- range $cidr := .Values.apiGateway.backendCidrs }}
+              - {{ $cidr | quote }}
+              {{- end }}
+    {{- end }}
+    - from:
+        - source:
+            namespaces: ["observability", "istio-system"]
+---
+# The waypoint itself has to be able to reach the backends it balances across.
+# Without this the waypoint's own egress is denied and every enrolled service
+# fails, which looks like an application bug and is not one.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-waypoint-egress
+  namespace: {{ $ns }}
+  labels:
+    {{- include "ecommerce.labels" (dict "root" $root "serviceName" "waypoint") | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: {{ $wp.name }}
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - {{ $workloadPrincipal }}
+              - {{ $gatewayPrincipal }}
+---
+# Prometheus scrapes /actuator/prometheus and Jaeger receives OTLP from every
+# pod. Matching on namespace rather than principal keeps this working when the
+# observability stack is deployed with a different service account.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-observability
+  namespace: {{ $ns }}
 spec:
   selector:
     matchLabels:
@@ -38,108 +173,262 @@ spec:
   rules:
     - from:
         - source:
-            principals:
-              - cluster.local/ns/ingress-nginx/sa/ingress-nginx
-      to:
-        - operation:
-            paths: ["/api/*", "/actuator/health/*"]
-    - from:
-        - source:
-            principals:
-              - cluster.local/ns/{{ .Release.Namespace }}/sa/{{ .Release.Name }}-gateway
-              - cluster.local/ns/{{ .Release.Namespace }}/sa/{{ .Release.Name }}-workload
-      to:
-        - operation:
-            paths: ["/api/*", "/internal/*", "/actuator/health/*"]
+            namespaces: ["observability"]
 ---
-# Internal-only surfaces are never reachable through the public path.
+# ---------------------------------------------------------------------------
+# 3. Per-destination L4 policy.
+#
+#    Once a waypoint is in the path, the destination's ztunnel sees the
+#    WAYPOINT's identity, not the original caller's: a waypoint does not
+#    impersonate the source workload. So for an enrolled service the correct
+#    L4 rule is "only the waypoint may reach me".
+#
+#    That is not just tidiness. `istio.io/use-waypoint` is a label recording
+#    intent, and ztunnel routes straight to the destination if the waypoint is
+#    missing or has no address. Without this rule, a waypoint outage would
+#    silently downgrade to L4 with every L7 policy unenforced.
+# ---------------------------------------------------------------------------
+{{- range $name, $service := .Values.services }}
+{{- if and $service.enabled $service.waypoint (not $service.headless) }}
+---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
-  name: deny-external-to-internal
-  namespace: {{ .Release.Namespace }}
+  name: {{ $name }}-require-waypoint
+  namespace: {{ $ns }}
+  labels:
+    {{- include "ecommerce.labels" (dict "root" $root "serviceName" $name) | nindent 4 }}
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: shipping-delivery-service
-      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/name: {{ $name }}
+      app.kubernetes.io/instance: {{ $root.Release.Name }}
   action: ALLOW
   rules:
     - from:
         - source:
             principals:
-              - cluster.local/ns/{{ .Release.Namespace }}/sa/{{ .Release.Name }}-workload
-      to:
-        - operation:
-            paths: ["/internal/*"]
+              - {{ $wpPrincipal }}
+    # Waypoint administration and telemetry.
+    - from:
+        - source:
+            namespaces: ["observability", "istio-system"]
+{{- end }}
+{{- if and $service.enabled (not $service.waypoint) }}
 ---
-# Outbound allow-list. Contains an SSRF or data-exfiltration attempt inside the
-# mesh rather than letting it reach the public internet.
+# No waypoint for this service, so its ztunnel is the enforcement point and the
+# caller's identity is still visible at L4. {{ $name }} is reached directly by
+# other mesh workloads.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
-  name: restrict-egress
-  namespace: {{ .Release.Namespace }}
+  name: {{ $name }}-allow-mesh
+  namespace: {{ $ns }}
+  labels:
+    {{- include "ecommerce.labels" (dict "root" $root "serviceName" $name) | nindent 4 }}
 spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+      app.kubernetes.io/instance: {{ $root.Release.Name }}
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - {{ $workloadPrincipal }}
+              - {{ $gatewayPrincipal }}
+    - from:
+        - source:
+            namespaces: ["observability", "istio-system"]
+{{- end }}
+{{- end }}
+{{- if $wp.enabled }}
+---
+# ---------------------------------------------------------------------------
+# 4. Authorization, L7, enforced by the waypoint.
+#
+#    Attached to the Gateway so it covers every service the waypoint fronts, in
+#    one place. A policy ATTACHED here is only enforced for traffic that
+#    actually reaches the waypoint, which is why section 3 also pins the
+#    waypoint's identity at L4.
+# ---------------------------------------------------------------------------
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: waypoint-surface
+  namespace: {{ $ns }}
+spec:
+  targetRefs:
+    - kind: Gateway
+      group: gateway.networking.k8s.io
+      name: {{ $wp.name }}
   action: ALLOW
   rules:
     - to:
         - operation:
-            hosts: ["*.svc.cluster.local"]
+            paths:
+              - "/api/*"
+              - "/internal/*"
+              - "/actuator/health/*"
+              - "/actuator/prometheus"
+    # Admin and stats endpoints are reachable only from the control plane and
+    # the observability stack, never from a shopping flow.
     - to:
         - operation:
-            hosts: ["*.postgres.database.azure.com", "*.redis.cache.windows.net"]
-    - to:
-        - operation:
-            hosts: ["*.servicebus.windows.net", "*.vault.azure.net"]
-    - to:
-        - operation:
-            hosts: ["monitoring.azure.com", "*.blob.core.windows.net"]
+            paths: ["/actuator/*"]
+      from:
+        - source:
+            namespaces: ["observability", "istio-system"]
 ---
-apiVersion: networking.istio.io/v1
-kind: VirtualService
+# The carrier webhook surface is internal-only. Stated as an explicit DENY
+# rather than as an omission from the ALLOW above, so that widening the public
+# surface later cannot silently reopen it.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
 metadata:
-  name: checkout-timeouts
-  namespace: {{ .Release.Namespace }}
+  name: deny-internal-from-gateway
+  namespace: {{ $ns }}
 spec:
-  hosts:
-    - order-service
-    - payment-service
-    - inventory-service
-  http:
-    - name: checkout
-      match:
-        - uri:
-            prefix: /api/
-      timeout: 10s
-      retries:
-        attempts: 2
-        perTryTimeout: 3s
-        # Only retry transport failures and 5xx. Retrying a POST that was
-        # actually processed would double-charge or double-ship.
-        retryOn: "5xx,reset,connect-failure,refused-stream"
+  targetRefs:
+    - kind: Gateway
+      group: gateway.networking.k8s.io
+      name: {{ $wp.name }}
+  action: DENY
+  rules:
+    - from:
+        - source:
+            principals:
+              - {{ $gatewayPrincipal }}
+      to:
+        - operation:
+            paths: ["/internal/*"]
+{{- if $root.Values.trafficPolicies.enabled }}
 ---
-apiVersion: networking.istio.io/v1
-kind: DestinationRule
+# ---------------------------------------------------------------------------
+# 5. Traffic management, enforced by the waypoint.
+#
+#    Gateway API replaces the old VirtualService here. `VirtualService` with the
+#    ambient data plane is Alpha, and Istio explicitly does not support mixing
+#    it with Gateway API configuration, so the two must not coexist.
+# ---------------------------------------------------------------------------
+{{- $tp := $root.Values.trafficPolicies }}
+{{- range $name, $service := .Values.services }}
+{{- if and $service.enabled $service.waypoint (not $service.headless) }}
+{{- /* dig, not `and`: `and` returns the last truthy argument rather than a
+       bool, which ternary then rejects. Most services have no canary block at
+       all, so the lookup has to tolerate a missing key. */}}
+{{- $canary := dig "canary" "enabled" false $service }}
+{{- range $r := (ternary (list "retry" "plain") (list "retry") $canary) }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
 metadata:
-  name: order-service
-  namespace: {{ .Release.Namespace }}
+  name: {{ $name }}-resilience
+  namespace: {{ $ns }}
+  labels:
+    {{- include "ecommerce.labels" (dict "root" $root "serviceName" $name) | nindent 4 }}
 spec:
-  host: order-service
-  trafficPolicy:
-    loadBalancer:
-      simple: LEAST_REQUEST
-    connectionPool:
-      tcp:
-        maxConnections: 100
-      http:
-        http1MaxPendingRequests: 200
-        maxRequestsPerConnection: 20
-    # Eject a pod that starts timing out before it becomes a user-visible
-    # failure for every request routed to it.
-    outlierDetection:
-      consecutive5xxErrors: 5
-      interval: 10s
-      baseEjectionTime: 30s
-      maxEjectionPercent: 50
+  parentRefs:
+    # Attaching to the Service rather than the Gateway means the rule applies
+    # to this destination only, and callers need no configuration at all.
+    - group: ""
+      kind: Service
+      name: {{ $name }}
+      port: {{ $service.port }}
+  rules:
+    {{- if eq $r "retry" }}
+    # Idempotent verbs get the retry budget. This is the split the old
+    # VirtualService only claimed to make: a single rule matching /api/ would
+    # have retried POST /payments too, double-charging every shopper whose
+    # payment provider returned a 503 after the charge had already been taken.
+    - matches:
+        {{- range $method := $tp.retry.methods }}
+        - path:
+            type: PathPrefix
+            value: /api/
+          method: {{ $method }}
+        {{- end }}
+      timeouts:
+        request: {{ $tp.timeout }}
+        backendRequest: {{ $tp.perTryTimeout }}
+      # `retry` is an extended (experimental channel) Gateway API field, so the
+      # CRDs must be installed from the experimental channel. The waypoint
+      # install instructions already require that.
+      retry:
+        attempts: {{ $tp.retry.attempts }}
+        codes:
+          {{- range $code := $tp.retry.codes }}
+          - {{ $code }}
+          {{- end }}
+        backoff: 250ms
+    # Everything else keeps the timeout budget but is never replayed.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/
+      timeouts:
+        request: {{ $tp.timeout }}
+        backendRequest: {{ $tp.perTryTimeout }}
+    {{- end }}
+    {{- if $canary }}
+    # Progressive rollout. `backendRefs` weights are the Gateway API equivalent
+    # of the old DestinationRule subsets, and unlike a subset they can only
+    # point at Services that really exist, so a typo fails at apply time rather
+    # than silently sending all traffic to the wrong pool.
+    #
+    # One HTTPRoute per rule, because a rule matches at most one backend list;
+    # splitting the two matching rules across two routes keeps the weighted
+    # split identical for retried and non-retried traffic.
+    {{- end }}
+    {{- if $canary }}
+    - backendRefs:
+        - name: {{ $name }}-stable
+          port: {{ $service.port }}
+          weight: {{ sub 100 (int $service.canary.weight) }}
+        - name: {{ $name }}-{{ $service.canary.label }}
+          port: {{ $service.port }}
+          weight: {{ int $service.canary.weight }}
+    {{- else }}
+    - backendRefs:
+        - name: {{ $name }}
+          port: {{ $service.port }}
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+---
+# ---------------------------------------------------------------------------
+# 6. Telemetry.
+#
+#    Ambient proxies emit this alongside the application's own OTel spans, so a
+#    trace shows queueing and mTLS handshake time that Micrometer cannot see.
+#    Two differences from sidecar mode that dashboards have to absorb:
+#    waypoint metrics carry reporter="waypoint", and there is no metrics
+#    merging, so Prometheus scrapes ztunnel and waypoint pods as separate
+#    targets rather than through the application's own /actuator/prometheus.
+# ---------------------------------------------------------------------------
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: mesh-access-logging
+  namespace: {{ $ns }}
+spec:
+  accessLogging:
+    - providers:
+        - name: envoy
+{{- if $root.Values.istio.tracingProvider }}
+  tracing:
+    # The provider must exist in the istiod MeshConfig `extensionProviders`
+    # block; see docs/AKS-DEPLOYMENT.md for the Jaeger definition. Referencing
+    # a provider that is not defined leaves the resource rejected, so this is
+    # driven by a value rather than hard-coded.
+    - providers:
+        - name: {{ $root.Values.istio.tracingProvider }}
+      # Match the application's own sampling rate so the two halves of a trace
+      # are not half-present.
+      randomSamplingPercentage: {{ $root.Values.global.tracingSampleRate | float64 | mul 100 }}
+{{- end }}
 {{- end }}

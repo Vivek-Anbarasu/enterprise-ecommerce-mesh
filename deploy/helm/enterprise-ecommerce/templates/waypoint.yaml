@@ -1,0 +1,134 @@
+{{/*
+Shared Layer 7 waypoint proxy (ambient mode).
+
+This is NOT a sidecar and NOT something you deploy a Deployment for. A Gateway
+object with `gatewayClassName: istio-waypoint` is a declaration; istiod watches
+it and owns the resulting Deployment, Service and ServiceAccount. That is the
+whole operational point of ambient mode: the L7 proxy can be upgraded, scaled
+or drained without touching a single application pod.
+
+Scope: one waypoint serves the whole namespace. It is enrolled per DESTINATION,
+by putting `istio.io/use-waypoint` on individual Services (see deployment.yaml),
+so a service that needs no L7 features costs nothing.
+*/}}
+{{- if and .Values.istio (eq (.Values.istio.mode | default "none") "ambient") .Values.istio.waypoint.enabled }}
+{{- $wp := .Values.istio.waypoint }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ $wp.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ecommerce.labels" (dict "root" . "serviceName" "waypoint") | nindent 4 }}
+    # `service` means this waypoint handles traffic addressed to a Kubernetes
+    # Service. Traffic dialled straight to a pod IP would bypass it entirely, so
+    # this value has to match how the application actually calls things.
+    istio.io/waypoint-for: {{ $wp.for | default "service" }}
+spec:
+  gatewayClassName: istio-waypoint
+  listeners:
+    # 15008/HBONE is the mesh listener every waypoint exposes. Port 15006 is
+    # deliberately absent: it is the plain-HTTP inbound listener used by
+    # ingress-oriented gateways, and a waypoint is an internal hop only.
+    - name: mesh
+      port: 15008
+      protocol: HBONE
+---
+# One waypoint is a shared dependency for every enrolled service in the
+# namespace, so losing it takes out east-west L7 for all of them at once. This
+# is the control that stops a node drain from doing that silently.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $wp.name }}-pdb
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ecommerce.labels" (dict "root" . "serviceName" "waypoint") | nindent 4 }}
+spec:
+  minAvailable: {{ ($wp.pdb).minAvailable | default 1 }}
+  selector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: {{ $wp.name }}
+{{- if .Values.networkPolicies.enabled }}
+---
+# The namespace runs default-deny on ingress and egress, and istiod labels the
+# waypoint pods with `gateway.networking.k8s.io/gateway-name`, NOT with our
+# `part-of` label. Nothing else in the chart selects them, so without these two
+# policies every waypoint hop is dropped by the CNI before it ever reaches Envoy.
+#
+# The `from:` clause is deliberately absent on the ingress rule: the peer is the
+# ztunnel on whichever node the caller is scheduled to, so its address is not
+# knowable in advance. Port 15008 accepts HBONE only, and the waypoint still
+# enforces the full L7 authorization stack on top.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $wp.name }}-allow-ingress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: {{ $wp.name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 15008
+---
+# Application pods must be able to reach the waypoint. Without this the
+# default-deny egress rule blocks the HBONE connection and every enrolled
+# service fails open-to-closed: ztunnel gets no reply and the caller sees a
+# connection timeout, not a routing error.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-waypoint-egress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              gateway.networking.k8s.io/gateway-name: {{ $wp.name }}
+      ports:
+        - protocol: TCP
+          port: 15008
+---
+# And the waypoint must be able to reach the backends it balances across, plus
+# DNS to resolve them.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $wp.name }}-allow-egress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: {{ $wp.name }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+{{- end }}
+{{- end }}
