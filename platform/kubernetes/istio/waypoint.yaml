@@ -1,0 +1,129 @@
+# Shared Layer 7 waypoint proxy.
+#
+# This file contains a Gateway and nothing else, on purpose. A waypoint is not
+# a Deployment you write: the Gateway is a declaration, and istiod watches it and
+# owns the resulting Deployment, Service and ServiceAccount. That is the
+# operational point of ambient mode - the L7 proxy is upgraded, scaled and
+# drained without a single application pod being restarted.
+#
+# Require the Gateway API CRDs before applying. The experimental channel is
+# needed because the resilience HTTPRoutes use the `retry` field:
+#
+#   kubectl apply --server-side -f \
+#     https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/experimental-install.yaml
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: waypoint
+  namespace: ecommerce
+  labels:
+    app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+    # `service` means this waypoint handles traffic addressed to a Kubernetes
+    # Service. Traffic dialled straight at a pod IP would not be sent here, so
+    # this value has to match how the application actually calls things.
+    istio.io/waypoint-for: service
+spec:
+  gatewayClassName: istio-waypoint
+  listeners:
+    # 15008/HBONE is the mesh listener every waypoint exposes. 15006 is
+    # deliberately absent: that is the plain-HTTP inbound listener used by
+    # ingress-oriented gateways, and a waypoint is an internal hop only.
+    - name: mesh
+      port: 15008
+      protocol: HBONE
+---
+# One waypoint serves the whole namespace, so it is a shared dependency for
+# every enrolled service. Losing it takes out east-west L7 for all of them at
+# once, which is what this stops happening silently during a node drain.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: waypoint-pdb
+  namespace: ecommerce
+  labels:
+    app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: waypoint
+---
+# The namespace default-denies ingress and egress. istiod labels the waypoint
+# pods with `gateway.networking.k8s.io/gateway-name`, NOT with the
+# `app.kubernetes.io/part-of` label that every other policy here selects on, so
+# without these rules the CNI drops every waypoint hop before Envoy sees it.
+#
+# The `from:` clause is deliberately absent on the ingress rule: the peer is
+# whichever ztunnel the caller happens to be scheduled next to, so its address
+# is not knowable in advance. Port 15008 speaks HBONE only, and the waypoint
+# still enforces the full L7 authorization stack on top.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: waypoint-allow-ingress
+  namespace: ecommerce
+spec:
+  podSelector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: waypoint
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 15008
+---
+# Application pods must be able to reach the waypoint. Without this, the
+# default-deny egress rule blocks the HBONE connection and every enrolled
+# service fails: ztunnel gets no reply, so the caller sees a connection timeout
+# rather than a routing error, which is close to undiagnosable from the client.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-waypoint-egress
+  namespace: ecommerce
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              gateway.networking.k8s.io/gateway-name: waypoint
+      ports:
+        - protocol: TCP
+          port: 15008
+---
+# And the waypoint must be able to reach the backends it balances across.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: waypoint-allow-egress
+  namespace: ecommerce
+spec:
+  podSelector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: waypoint
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

@@ -7,8 +7,27 @@
 #
 # Differences from the gateway, and why:
 #   * No LoadBalancer/ingress - nothing but the gateway is internet-facing.
-#   * auth: service account token for service-to-service calls.
 #   * resources: sized per tier, not one size fits all.
+#
+# There is deliberately NO sidecar container and no `sidecar.istio.io/inject`
+# annotation. The namespace's `istio.io/dataplane-mode: ambient` label puts
+# every pod in it behind the shared per-node ztunnel, which costs no pod memory
+# and survives a mesh upgrade without restarting the application. The pod spec
+# below is byte-for-byte the application container, nothing else.
+#
+# Port: each service listens on its own port, and the Service exposes that same
+# port so the gateway can address it directly by DNS name with no registry:
+#
+#   order-service 8082            product-catalog-service 8085
+#   inventory-service 8083        shopping-cart-service   8086
+#   payment-service 8084          customer-service       8087
+#                                 review-rating-service   8088
+#                                 shipping-delivery-service 8089
+#                                 ai-orchestrator-service 8090
+#                                 notification-service    8081 (actuator only)
+#
+# Substitute SERVICE_PORT_PLACEHOLDER below with that service's port. Probes
+# address the named port "http", so they follow automatically.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -39,7 +58,7 @@ spec:
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/path: "/actuator/prometheus"
-        prometheus.io/port: "8080"
+        prometheus.io/port: "SERVICE_PORT_PLACEHOLDER"
         # Roll pods when the config map changes, so an env change is not a
         # silent no-op until the next unrelated deploy.
         checksum/config: "REPLACED_BY_CI"
@@ -68,7 +87,7 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
-              containerPort: 8080
+              containerPort: SERVICE_PORT_PLACEHOLDER
           envFrom:
             - configMapRef:
                 name: SERVICE_NAME_PLACEHOLDER-config
@@ -126,13 +145,23 @@ metadata:
   labels:
     app.kubernetes.io/name: SERVICE_NAME_PLACEHOLDER
     app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+    # Layer 7 enrollment. Drop this line and the service keeps working: it
+    # falls back to the ztunnel L4 overlay, which is the correct default for
+    # anything with no HTTP surface (a Kafka consumer) or that is only ever
+    # reached from the edge (the gateway itself).
+    #
+    # Keep it for anything that needs request-level load balancing, retries,
+    # outlier ejection or path-level authorization, which is every service the
+    # gateway fans out to and the whole checkout path.
+    istio.io/use-waypoint: waypoint
 spec:
   type: ClusterIP
   selector:
     app.kubernetes.io/name: SERVICE_NAME_PLACEHOLDER
   ports:
     - name: http
-      port: 8080
+      # Same as the container port: the gateway dials this directly by DNS name.
+      port: SERVICE_PORT_PLACEHOLDER
       targetPort: http
 ---
 # Bounds the blast radius of a bad deploy: at most one unavailable pod.

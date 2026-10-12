@@ -36,10 +36,17 @@ spring:
         # Strip hop-by-hop headers so internal topology is not leaked.
         - RemoveRequestHeader=Cookie
         - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_UNIQUE
+      # Downstream targets are plain http:// against Kubernetes Service DNS names.
+      # There is no service registry: the mesh runs on AKS with CoreDNS for
+      # name resolution and Istio for mTLS, retries and L7 routing, so the
+      # gateway holds no registry in memory and sends no discovery heartbeats.
+      # Client-side load balancing is therefore the cluster's job (kube-proxy or
+      # Envoy), not the gateway's. Each *SVC_PORT matches the `port` of that
+      # service's Kubernetes Service; MESH_*_URI still overrides the whole URI.
       routes:
         # ---------------- Read-heavy, anonymously browsable ----------------
         - id: product-catalog
-          uri: ${MESH_CATALOG_URI:lb://product-catalog-service}
+          uri: ${MESH_CATALOG_URI:http://product-catalog-service:${CATALOG_SVC_PORT:8085}}
           predicates:
             - Path=/api/products/**,/api/categories/**
           filters:
@@ -49,7 +56,7 @@ spring:
                 fallbackUri: forward:/fallback/catalog
 
         - id: review-rating
-          uri: ${MESH_REVIEW_URI:lb://review-rating-service}
+          uri: ${MESH_REVIEW_URI:http://review-rating-service:${REVIEW_SVC_PORT:8088}}
           predicates:
             - Path=/api/reviews/**
           filters:
@@ -62,7 +69,7 @@ spring:
 
         # ---------------- Authenticated session traffic ----------------
         - id: customer
-          uri: ${MESH_CUSTOMER_URI:lb://customer-service}
+          uri: ${MESH_CUSTOMER_URI:http://customer-service:${CUSTOMER_SVC_PORT:8087}}
           predicates:
             - Path=/api/customers/**
           filters:
@@ -73,7 +80,7 @@ spring:
                 redis-rate-limiter.burstCapacity: ${RL_WRITE_BURST:100}
 
         - id: shopping-cart
-          uri: ${MESH_CART_URI:lb://shopping-cart-service}
+          uri: ${MESH_CART_URI:http://shopping-cart-service:${CART_SVC_PORT:8086}}
           predicates:
             - Path=/api/cart/**,/api/carts/**
           filters:
@@ -86,7 +93,7 @@ spring:
         # ---------------- Checkout path: tight limits, must not be throttled
         # into abandonment, but must not melt inventory either ----------
         - id: order
-          uri: ${MESH_ORDER_URI:lb://order-service}
+          uri: ${MESH_ORDER_URI:http://order-service:${ORDER_SVC_PORT:8082}}
           predicates:
             - Path=/api/orders/**
           filters:
@@ -101,7 +108,7 @@ spring:
                 fallbackUri: forward:/fallback/orders
 
         - id: payment
-          uri: ${MESH_PAYMENT_URI:lb://payment-service}
+          uri: ${MESH_PAYMENT_URI:http://payment-service:${PAYMENT_SVC_PORT:8084}}
           predicates:
             - Path=/api/payments/**
           filters:
@@ -116,7 +123,7 @@ spring:
                 fallbackUri: forward:/fallback/payments
 
         - id: inventory
-          uri: ${MESH_INVENTORY_URI:lb://inventory-service}
+          uri: ${MESH_INVENTORY_URI:http://inventory-service:${INVENTORY_SVC_PORT:8083}}
           predicates:
             - Path=/api/inventory/**
           filters:
@@ -127,8 +134,11 @@ spring:
                 redis-rate-limiter.burstCapacity: ${RL_INVENTORY_BURST:200}
 
         # ---------------- Internal, mesh-only, never exposed publicly ------
+        # notification-service is a Kafka worker with no business port
+        # (server.port=-1); the only HTTP it serves is the actuator on the
+        # management port, so this route reaches probes and metrics only.
         - id: notifications-internal
-          uri: ${MESH_NOTIFICATION_URI:lb://notification-service}
+          uri: ${MESH_NOTIFICATION_URI:http://notification-service:${NOTIFICATION_SVC_PORT:8081}}
           predicates:
             - Path=/internal/notifications/**
           metadata:
@@ -136,14 +146,14 @@ spring:
             exposure: internal
 
         - id: shipping-internal
-          uri: ${MESH_SHIPPING_URI:lb://shipping-delivery-service}
+          uri: ${MESH_SHIPPING_URI:http://shipping-delivery-service:${SHIPPING_SVC_PORT:8089}}
           predicates:
             - Path=/internal/shipping/**
           metadata:
             exposure: internal
 
         - id: ai-orchestrator
-          uri: ${MESH_AI_URI:lb://ai-orchestrator-service}
+          uri: ${MESH_AI_URI:http://ai-orchestrator-service:${AI_SVC_PORT:8090}}
           predicates:
             - Path=/api/ai/**
           filters:

@@ -12,6 +12,23 @@ them as values is what stops the manifests drifting apart over time.
 {{- $isHeadless := $service.headless | default false }}
 {{- $probePort := ternary ($service.managementPort | default 8081) $service.port $isHeadless }}
 {{- $replicas := $service.replicas | default 2 }}
+{{- /*
+  Waypoint enrollment is a property of the DESTINATION, so it is declared on
+  the Service rather than on the pod. Callers do not change and are not even
+  aware: ztunnel rewrites the outbound connection and the waypoint does the L7
+  work. A headless Service has no ClusterIP, so callers resolve pod IPs
+  directly and a `service` waypoint could never intercept it; enrolling one
+  would be a label that silently does nothing.
+*/}}
+{{- $ambient := eq ($root.Values.istio.mode | default "none") "ambient" }}
+{{- $useWaypoint := and $ambient ($root.Values.istio.waypoint).enabled $service.waypoint (not $isHeadless) }}
+{{- $canaryOn := and $service.canary $service.canary.enabled $useWaypoint }}
+{{- /*
+  The chart always deploys the STABLE revision. The canary Deployment is created
+  out of band by copying this one and changing this label, which is why the
+  value is fixed rather than read from `canary.enabled`.
+*/}}
+{{- $rollout := "stable" }}
 {{- if and $root.Values.autoscaling.enabled (not $isHeadless) }}
 {{- $replicas = $root.Values.autoscaling.minReplicas }}
 {{- end }}
@@ -48,15 +65,26 @@ spec:
       labels:
         {{- include "ecommerce.labels" (dict "root" $root "serviceName" $name) | nindent 8 }}
         app.kubernetes.io/component: {{ $service.tier | default "core" }}
+        # Rollout slot. `stable` by default; a canary Deployment reuses the same
+        # labels with this one changed, which is what the -stable and -canary
+        # Services select on (see templates/canary.yaml).
+        mesh.enterprise-ecommerce.io/rollout: {{ $rollout }}
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/path: /actuator/prometheus
         prometheus.io/port: {{ $probePort | quote }}
-        {{- if $root.Values.istio.enabled }}
-        sidecar.istio.io/inject: "true"
-        {{- if $root.Values.istio.revision }}
-        istio.io/rev: {{ $root.Values.istio.revision }}
-        {{- end }}
+        {{- /*
+          Ambient mode injects nothing into this pod: there is no sidecar
+          container, so there is no `sidecar.istio.io/inject` annotation to set
+          and no webhook to wait on at startup. Coverage comes from the shared
+          per-node ztunnel, which the namespace label turns on for every pod.
+
+          `none` is the explicit opt-out for a workload that must not be captured
+          at all. It is off by default: opting a pod out loses mTLS and identity
+          for that pod, so it should be a deliberate per-service decision.
+        */}}
+        {{- if and $root.Values.istio.mode (eq $root.Values.istio.mode "ambient") $service.dataplane }}
+        istio.io/dataplane-mode: {{ $service.dataplane | quote }}
         {{- end }}
     spec:
       serviceAccountName: {{ $root.Release.Name }}-workload
@@ -154,10 +182,13 @@ metadata:
   namespace: {{ $root.Release.Namespace }}
   labels:
     {{- include "ecommerce.labels" (dict "root" $root "serviceName" $name) | nindent 4 }}
-  {{- if and $service.ingress $service.ingress.enabled }}
-  annotations:
-    {{- toYaml $service.ingress.annotations | nindent 4 }}
-  {{- end }}
+    {{- if $useWaypoint }}
+    # Enrolls this destination in the shared waypoint. Requests from any pod in
+    # the mesh addressed to this Service are then routed ztunnel -> waypoint ->
+    # backend, which is what restores per-request load balancing, retries and
+    # outlier ejection. Remove the label to drop back to the L4 overlay.
+    istio.io/use-waypoint: {{ $root.Values.istio.waypoint.name }}
+    {{- end }}
 spec:
   # Headless (no ClusterIP) for Kafka consumers: the pods must not be load
   # balanced, because each consumer group member must own its partitions.
@@ -172,6 +203,13 @@ spec:
   type: ClusterIP
   selector:
     {{- include "ecommerce.selectorLabels" (dict "root" $root "serviceName" $name) | nindent 4 }}
+    {{- if $canaryOn }}
+    # With a canary in play the plain Service must resolve to the stable pool
+    # only. Leaving it unconstrained would let a direct caller (or a probe, or
+    # a ServiceMonitor) reach the canary and quietly unbalance the split that
+    # the HTTPRoute is supposed to own.
+    mesh.enterprise-ecommerce.io/rollout: {{ $rollout }}
+    {{- end }}
   ports:
     - name: http
       port: {{ $service.port }}
@@ -236,37 +274,6 @@ spec:
   selector:
     matchLabels:
       {{- include "ecommerce.selectorLabels" (dict "root" $root "serviceName" $name) | nindent 6 }}
-{{- end }}
-{{- if and $service.ingress $service.ingress.enabled }}
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: {{ $name }}
-  namespace: {{ $root.Release.Namespace }}
-  labels:
-    {{- include "ecommerce.labels" (dict "root" $root "serviceName" $name) | nindent 4 }}
-  {{- with $service.ingress.annotations }}
-  annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
-spec:
-  ingressClassName: {{ $service.ingress.className }}
-  tls:
-    - hosts:
-        - {{ $service.ingress.host }}
-      secretName: {{ $service.ingress.tlsSecret }}
-  rules:
-    - host: {{ $service.ingress.host }}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ $name }}
-                port:
-                  name: http
 {{- end }}
 {{- end }}
 {{- end }}

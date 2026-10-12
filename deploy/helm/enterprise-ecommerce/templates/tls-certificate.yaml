@@ -1,0 +1,70 @@
+{{/*
+Edge TLS certificate.
+
+Application Gateway for Containers cannot reference a Key Vault certificate.
+Its certificates must be a Kubernetes Secret living in the cluster, so the
+previous `kubernetes.azure.com/tls-cert-keyvault-uri` Ingress annotation has no
+equivalent here and silently loses TLS.
+
+Rather than introducing cert-manager, this reuses the Secrets Store CSI driver
+the chart already depends on for application secrets: Key Vault stays the source
+of truth, the driver syncs it into a Secret, and the Gateway references that
+Secret. Rotation is still a Key Vault operation and the certificate still never
+appears in git, an environment variable or etcd.
+
+Requires the secrets-store CSI driver enabled on the cluster:
+  az aks enable-addons --resource-group rg-ecommerce-prod \
+    --name aks-ecommerce-prod --addon secrets-store
+*/}}
+{{- if and .Values.apiGateway .Values.apiGateway.enabled .Values.apiGateway.certificate.syncFromKeyVault .Values.keyVault.enabled }}
+{{- $root := . }}
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: {{ .Values.apiGateway.certificate.secretName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ecommerce.labels" (dict "root" $root "serviceName" "api-gateway") | nindent 4 }}
+spec:
+  provider: azure
+  # Synced on this interval, so a Key Vault rotation reaches the edge without a
+  # Helm upgrade. Short enough to be useful, long enough not to hammer Key
+  # Vault.
+  refreshInterval: 1h
+  secretObjects:
+    - secretName: {{ .Values.apiGateway.certificate.secretName }}
+      type: kubernetes.io/tls
+      labels:
+        {{- include "ecommerce.labels" (dict "root" $root "serviceName" "api-gateway") | nindent 8 }}
+      data:
+        # The Gateway API `tls.certificateRefs` expects exactly these two keys
+        # for a kubernetes.io/tls Secret. Anything else is ignored and the
+        # listener never becomes Programmed.
+        - objectName: tls.crt
+          key: tls.crt
+        - objectName: tls.key
+          key: tls.key
+  parameters:
+    # Cluster-specific. These are normally passed with --set or an
+    # environment-specific values file that is NOT committed.
+    tenantid: {{ .Values.keyVault.tenantId | quote }}
+    vaultUrl: {{ .Values.keyVault.vaultUrl | quote }}
+    # Only the two objects above. An over-broad keyName list would sync the
+    # whole vault's certificates into the cluster namespace.
+    objects: |
+      array:
+        - |
+          objectName: tls.crt
+          objectType: secret
+          objectName: tls.crt
+          keyName: PLACEHOLDER_EDGE_CERT_NAME
+        - |
+          objectName: tls.key
+          objectType: secret
+          objectName: tls.key
+          keyName: PLACEHOLDER_EDGE_CERT_NAME
+    # Fail closed. If the certificate cannot be fetched, an existing Secret
+    # keeps serving rather than the listener dropping and taking the edge down.
+    syncSecret:
+      enabled: "true"
+{{- end }}
