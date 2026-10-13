@@ -32,6 +32,28 @@ app.kubernetes.io/instance: {{ .root.Release.Name }}
 {{- printf "%s-%s-db" .root.Release.Name .serviceName -}}
 {{- end -}}
 
+{{/* Name of the Secret holding this service's OAuth2 client credentials. */}}
+{{- define "ecommerce.oauthSecretName" -}}
+{{- printf "%s-%s-oauth" .root.Release.Name .serviceName -}}
+{{- end -}}
+
+{{/*
+ServiceAccount a workload runs as.
+
+Defaults to the shared `-workload` account. A service that needs an identity of
+its own - because an AuthorizationPolicy grants or denies it specifically -
+sets `serviceAccount: true` and gets its own account instead. That granularity is
+the point: naming a single principal in a mesh policy is only meaningful if exactly
+one workload holds it.
+*/}}
+{{- define "ecommerce.serviceAccountName" -}}
+{{- if .service.serviceAccount -}}
+{{- printf "%s-%s" .root.Release.Name .serviceName -}}
+{{- else -}}
+{{- printf "%s-workload" .root.Release.Name -}}
+{{- end -}}
+{{- end -}}
+
 {{/*
 Env block for a service. Merges the standard mesh variables with any
 service-specific extras in .service.extraEnv.
@@ -74,12 +96,25 @@ service-specific extras in .service.extraEnv.
       name: {{ include "ecommerce.dbSecretName" (dict "root" .root "serviceName" .serviceName) }}
       key: password
 {{- end }}
+{{- if .service.oauthClientSecret }}
+- name: ENTRA_CLIENT_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "ecommerce.oauthSecretName" (dict "root" .root "serviceName" .serviceName) }}
+      key: client-secret
+{{- end }}
 {{- if .service.mongodb }}
 - name: MONGODB_URI
   value: {{ .root.Values.infrastructure.mongodb.uri | quote }}
 {{- end }}
+{{- /*
+  Profiles are a list so a service can add one without redefining the whole
+  variable. Setting SPRING_PROFILES_ACTIVE again in extraEnv would emit a second
+  entry with the same name, and which of the two the kubelet honours is not
+  something to leave to chance.
+*/}}
 - name: SPRING_PROFILES_ACTIVE
-  value: production
+  value: {{ join "," (default (list "production") .service.profiles) | quote }}
 {{- range $key, $value := .service.extraEnv }}
 - name: {{ $key }}
   value: {{ $value | quote }}

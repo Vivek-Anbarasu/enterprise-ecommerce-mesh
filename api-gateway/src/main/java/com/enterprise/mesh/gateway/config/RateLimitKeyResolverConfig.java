@@ -18,6 +18,15 @@ import com.enterprise.mesh.gateway.filter.TenantForwardingFilter;
  * NAT or mobile carrier CGNAT can put thousands of unrelated shoppers behind one
  * source address, so IP-based limits punish innocent customers and let one
  * abusive tenant exhaust the whole cluster's budget.
+ *
+ * <p>The bff-service is a caller of this gateway like any other, so its traffic
+ * is counted here against the same tenant bucket. Worth being explicit about,
+ * because it looks like it should be exempt: one {@code GET /bff/api/dashboard}
+ * becomes four calls to {@code /api/customers/me}, {@code /api/cart},
+ * {@code /api/orders} and {@code /api/ai/recommendations}. Charging the BFF
+ * honestly means the limits above have to be sized for peak fan-out, not for
+ * shopper request rates. Exempting it would make the dashboard look cheap while
+ * the checkout path underneath it quietly absorbed four times the load.
  */
 @Configuration
 public class RateLimitKeyResolverConfig {

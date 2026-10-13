@@ -1,0 +1,46 @@
+# Entra ID client registration for the BFF.
+#
+# Activate with SPRING_PROFILES_ACTIVE=entra. It is not in application.yml because
+# an entry whose value is empty is a startup failure in Spring Boot, not an absent
+# configuration - see the comment there. Keeping it in its own profile is what
+# lets this service boot with no identity provider configured at all.
+#
+# Required environment:
+#   ENTRA_CLIENT_ID       application (client) id of the app registration
+#   ENTRA_TENANT_ID       directory (tenant) id
+#   ENTRA_CLIENT_SECRET   ONLY for a confidential client; leave unset for a public
+#                         client using PKCE, which is the better default for a
+#                         browser-facing app. Never commit one - in AKS it comes
+#                         from Key Vault through the CSI driver.
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          entra:
+            provider: entra
+            client-id: ${ENTRA_CLIENT_ID}
+            client-secret: ${ENTRA_CLIENT_SECRET:}
+            # authorization_code is what makes the BFF worth having: the browser
+            # sees a redirect to Entra and never handles a token.
+            authorization-grant-type: authorization_code
+            # `offline_access` is what asks for a refresh token. Omit it and every
+            # session silently dies an hour later with no way back - which is why
+            # SessionTokenService names a missing refresh token as its own failure
+            # rather than letting it look like a random logout.
+            scope:
+              - openid
+              - profile
+              - email
+              - offline_access
+            # Must match the app registration's redirect URI exactly. Behind the
+            # AKS edge the public origin differs from the pod, so this is set
+            # explicitly rather than derived from the request.
+            redirect-uri: "${ENTRA_REDIRECT_URI:{baseUrl}/bff/oauth2/callback/{registrationId}}"
+        provider:
+          entra:
+            issuer-uri: https://login.microsoftonline.com/${ENTRA_TENANT_ID}/v2.0
+            # Pinned alongside issuer-uri. Discovering these from the network on
+            # every cold start is both a latency spike and a dependency on Entra
+            # being reachable before the pod can serve its first request.
+            jwk-set-uri: https://login.microsoftonline.com/${ENTRA_TENANT_ID}/discovery/v2.0/keys

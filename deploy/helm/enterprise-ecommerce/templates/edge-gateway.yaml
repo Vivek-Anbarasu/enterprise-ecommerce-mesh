@@ -100,6 +100,35 @@ spec:
       namespace: {{ .Release.Namespace }}
       sectionName: https
   rules:
+    {{- $bffService := index .Values.services "bff-service" }}
+    {{- if $bffService.enabled }}
+    {{- /*
+    The BFF's surface is routed by path prefix rather than by hostname, and the
+    catch-all to the gateway below stays in place.
+
+    A second listener on a `storefront.` hostname would read more cleanly, but it
+    needs a second public DNS record, a second certificate and a second listener
+    entry, and this chart already has to keep the AGC frontend in step with the
+    TLS Secret. Path prefixes keep the change to one route and one service name,
+    and they fail safe: an unrecognised SPA path falls through to the gateway,
+    which is the same behaviour the SPA had before the BFF existed.
+
+    The prefixes cover the whole BFF surface, not just its REST endpoints:
+      /bff/api        the aggregated payloads the SPA calls
+      /bff/oauth2     the Entra redirect endpoints, including the callback
+      /bff/logout     the CSRF-protected sign-out
+      /login          Spring Security's generated login page
+    */}}
+    - matches:
+        {{- range $prefix := (.Values.apiGateway.bffPathPrefixes | default (list "/bff" "/login")) }}
+        - path:
+            type: PathPrefix
+            value: {{ $prefix }}
+        {{- end }}
+      backendRefs:
+        - name: bff-service
+          port: {{ $bffService.port }}
+    {{- end }}
     - matches:
         - path:
             type: PathPrefix

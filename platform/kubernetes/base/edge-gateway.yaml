@@ -68,6 +68,24 @@ spec:
       namespace: ecommerce
       sectionName: https
   rules:
+    # The storefront SPA talks to the BFF, not to the gateway. Only these
+    # prefixes are diverted; everything else - every existing mobile and partner
+    # client - still lands on the gateway exactly as before.
+    #
+    # Routing by path rather than by hostname keeps this to one route and one
+    # certificate. It also fails safe: an unrecognised SPA path falls through to
+    # the gateway, which is what the SPA did before the BFF existed.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /bff
+        # Spring Security's generated login page, which the BFF also serves.
+        - path:
+            type: PathPrefix
+            value: /login
+      backendRefs:
+        - name: bff-service
+          port: 8091
     - matches:
         - path:
             type: PathPrefix

@@ -87,7 +87,7 @@ spec:
         istio.io/dataplane-mode: {{ $service.dataplane | quote }}
         {{- end }}
     spec:
-      serviceAccountName: {{ $root.Release.Name }}-workload
+      serviceAccountName: {{ include "ecommerce.serviceAccountName" (dict "root" $root "service" $service "serviceName" $name) }}
       {{- with $root.Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}

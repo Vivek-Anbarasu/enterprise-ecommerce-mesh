@@ -1,0 +1,152 @@
+server:
+  port: ${SERVER_PORT:8091}
+  shutdown: graceful
+  tomcat:
+    threads:
+      max: ${TOMCAT_MAX_THREADS:200}
+    accept-count: 100
+
+spring:
+  application:
+    name: bff-service
+  main:
+    banner-mode: off
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  threads:
+    # The aggregation fan-out is blocking HTTP; virtual threads make that cheap
+    # without changing the servlet programming model the session/cookie flow needs.
+    virtual:
+      enabled: true
+
+  # ---------------------------------------------------------------- session ---
+  #
+  # The session cookie is the only credential the browser holds. It is HttpOnly, so
+  # script cannot read it, and SameSite=Lax so it is not attached to cross-site
+  # requests - Lax rather than Strict because the OAuth2 callback arrives as a
+  # top-level redirect from Entra, and Strict would withhold the cookie from it and
+  # break sign-in.
+  servlet:
+    session:
+      timeout: ${SESSION_TIMEOUT:30m}
+      cookie:
+        name: SESSION
+        http-only: true
+        secure: ${SESSION_COOKIE_SECURE:true}
+        same-site: lax
+        path: /
+
+  session:
+    redis:
+      namespace: ${SESSION_NAMESPACE:bff:session}
+      # Expire a few minutes past the idle timeout so the key outlives the session
+      # that created it. Without the margin a Redis replica running slightly ahead
+      # would delete the session while it is still perfectly valid.
+      cleanup-cron: "0 * * * * *"
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      ssl:
+        enabled: ${REDIS_SSL_ENABLED:false}
+      timeout: 2s
+      lettuce:
+        pool:
+          max-active: 32
+          min-idle: 8
+          max-idle: 16
+
+  # --------------------------------------------------------------- identity ---
+  #
+  # The OAuth2 client registration lives in application-entra.yml, NOT here.
+  #
+  # Declaring `client-id: ${ENTRA_CLIENT_ID:}` inline looks like it would leave the
+  # registration unconfigured when the variable is unset, but Boot validates any
+  # registration whose key exists and fails startup with "Client id of registration
+  # 'entra' must not be empty." An absent registration is skipped; a present but
+  # empty one is a crash.
+  #
+  # So: absent by default, which lets the service boot with no Entra credentials
+  # (local dev, unit tests, and the anonymous storefront), and activated with
+  # SPRING_PROFILES_ACTIVE=entra wherever sign-in is actually offered.
+
+mesh:
+  environment: ${MESH_ENV:local}
+  tier: edge
+  bff:
+    gateway-uri: ${MESH_GATEWAY_URI:http://api-gateway:8080}
+    registration-id: ${BFF_REGISTRATION_ID:entra}
+    connect-timeout: ${BFF_CONNECT_TIMEOUT:2s}
+    read-timeout: ${BFF_READ_TIMEOUT:8s}
+    # Renew 90s early so a token never dies mid-flight. See BffProperties.
+    refresh-skew: ${BFF_REFRESH_SKEW:90s}
+    # Whole-request budget across the fan-out; strictly under read-timeout.
+    aggregation-timeout: ${BFF_AGGREGATION_TIMEOUT:5s}
+    refresh-enabled: ${BFF_REFRESH_ENABLED:true}
+    csrf-header: X-XSRF-TOKEN
+    csrf-cookie-name: XSRF-TOKEN
+    # Exact origins, not patterns. The storefront is few and known; see
+    # BffSecurityConfig#bffCorsConfigurationSource for why this is not "*".
+    allowed-origins: ${BFF_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+    instances:
+      # The gateway's own breakers cover this hop; these are for the rare case
+      # where the BFF is talking to the gateway directly and the gateway's route
+      # for a given path is not the one failing.
+      gatewayCircuitBreaker:
+        baseConfig: default
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when-authorized
+      group:
+        # Redis is `optional:` on purpose. A shopper whose session cannot be read
+        # can still browse the catalogue; failing readiness would pull every BFF
+        # replica out of the Service and turn a degraded session store into a
+        # total outage of the storefront.
+        readiness:
+          include: readinessState
+        liveness:
+          include: livenessState
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_RATE:0.1}
+  otlp:
+    tracing:
+      endpoint: ${OTLP_ENDPOINT:http://jaeger-collector.observability.svc.cluster.local:4318/v1/traces}
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  structured:
+    format:
+      console: ${LOG_FORMAT:ecs}
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.enterprise.mesh: ${LOG_LEVEL_APP:INFO}
+    # The OAuth2 and session plumbing is where a silent sign-in failure lives.
+    org.springframework.security.oauth2: ${LOG_LEVEL_SECURITY:INFO}
+    org.springframework.session: ${LOG_LEVEL_SESSION:INFO}
