@@ -81,6 +81,31 @@ services:
   api-gateway:
     replicas: 3
 
+  bff-service:
+    replicas: 4
+    # Reads ENTRA_CLIENT_SECRET from the <release>-bff-service-oauth Secret.
+    # Set true only for a confidential client registration. A public client using
+    # PKCE needs no secret and is the better default for a browser-facing app:
+    # nothing to leak, rotate, or accidentally log.
+    oauthClientSecret: false
+    extraEnv:
+      # Cluster-specific, and deliberately left empty here: these identify a real
+      # Entra directory and must not be committed. Supply them with --set, or from
+      # an environment-specific values file kept out of source control:
+      #
+      #   --set services.bff-service.extraEnv.ENTRA_TENANT_ID=<directory-id> \
+      #   --set services.bff-service.extraEnv.ENTRA_CLIENT_ID=<app-client-id>
+      #
+      # Nothing else about the BFF is environment-specific.
+      ENTRA_TENANT_ID: ""
+      ENTRA_CLIENT_ID: ""
+      # Must match the redirect URI registered on the Entra app registration
+      # exactly, scheme and path included.
+      ENTRA_REDIRECT_URI: "https://api.enterprise-ecommerce.com/bff/oauth2/callback/entra"
+      # 30 minutes idle. This is also the blast radius of a stolen session cookie,
+      # so it is the knob to turn down if the threat model calls for it.
+      SESSION_TIMEOUT: "30m"
+
   order-service:
     replicas: 4
     extraEnv:

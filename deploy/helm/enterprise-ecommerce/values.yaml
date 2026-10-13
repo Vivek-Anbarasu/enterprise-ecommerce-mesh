@@ -123,6 +123,53 @@ services:
       order: { replenishRate: 20,  burstCapacity: 40 }
     extraEnv: {}
 
+  bff-service:
+    enabled: true
+    tier: edge
+    replicas: 3
+    port: 8091
+    # No waypoint, for the same reason as the gateway: the BFF is entered by the
+    # ingress controller, and Istio models ingress-to-service separately from
+    # east-west traffic. What the BFF calls - the gateway - goes through ztunnel
+    # for mTLS exactly as any other mesh call would.
+    waypoint: false
+    # Reachable from Application Gateway for Containers, and from nothing else.
+    # This drives both the edge mTLS carve-out and the edge NetworkPolicy.
+    edgeExposed: true
+    # Own ServiceAccount, so the AuthorizationPolicy granting it access to the
+    # api-gateway names one workload rather than the whole namespace.
+    serviceAccount: true
+    image: { repository: bff-service }
+    # `entra` is the profile that carries the OAuth2 client registration. It is
+    # separate from application.yml on purpose: an empty client-id is a startup
+    # failure in Spring Boot, so the registration has to be either fully
+    # configured or entirely absent.
+    profiles: ["production", "entra"]
+    resources:
+      requests: { cpu: 250m, memory: 384Mi }
+      limits: { cpu: "1", memory: 768Mi }
+    # Reads ENTRA_CLIENT_SECRET from the <release>-bff-service-oauth Secret.
+    # Empty for a public-client registration, which needs no secret.
+    oauthClientSecret: false
+    extraEnv:
+      # The BFF's only route into the business mesh. Everything else it needs is
+      # reachable from inside this service by way of the gateway.
+      MESH_GATEWAY_URI: "http://api-gateway:8080"
+      # Exact storefront origins, not a wildcard: this service reads a
+      # SameSite-protected session cookie, so the CORS allow-list is a security
+      # control here rather than a convenience.
+      BFF_ALLOWED_ORIGINS: "https://shop.enterprise-ecommerce.com"
+      # Must match the redirect URI registered on the Entra app registration.
+      # The placeholder below is the public edge hostname from apiGateway; replace
+      # it in values-prod.yaml alongside the frontend.
+      ENTRA_CLIENT_ID: "REPLACE_WITH_ENTRA_APPLICATION_CLIENT_ID"
+      ENTRA_TENANT_ID: "REPLACE_WITH_ENTRA_DIRECTORY_TENANT_ID"
+      ENTRA_REDIRECT_URI: "https://shop.enterprise-ecommerce.com/bff/oauth2/callback/entra"
+      # 30 minutes of idle time ends the session. Longer is friendlier and means a
+      # stolen cookie is worth more, so this is the knob to turn when auditing.
+      SESSION_TIMEOUT: "30m"
+      SESSION_NAMESPACE: "bff:session"
+
   product-catalog-service:
     enabled: true
     tier: edge

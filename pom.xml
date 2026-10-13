@@ -36,6 +36,7 @@
     <modules>
         <module>common-bom</module>
         <module>api-gateway</module>
+        <module>bff-service</module>
         <module>core-services/customer-service</module>
         <module>core-services/order-service</module>
         <module>core-services/payment-service</module>

@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.enterprise.mesh</groupId>
+        <artifactId>enterprise-ecommerce-mesh</artifactId>
+        <version>1.0.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>bff-service</artifactId>
+    <name>BFF Service</name>
+    <description>
+        Browser-facing backend for frontend. Terminates the SPA session cookie, keeps the
+        Entra ID token bundle server-side in Redis, refreshes it silently and re-issues it
+        as a bearer token to the api-gateway. Never speaks OAuth2 to the browser.
+    </description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <!--
+          Brings spring-security-oauth2-client (authorization_code + refresh_token)
+          and spring-security-oauth2-jose (Nimbus ID-token decoding). No resource
+          server: nothing presents a bearer token TO this service, so there is no
+          inbound JWT to validate.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-oauth2-client</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <!--
+          The session lives in Redis, not in a sticky Tomcat session: the BFF is
+          horizontally scaled behind the waypoint with no session affinity, so a
+          cookie that only resolves on the pod that issued it logs the shopper out
+          whenever the waypoint moves them.
+        -->
+        <dependency>
+            <groupId>org.springframework.session</groupId>
+            <artifactId>spring-session-data-redis</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!--
+          Supplies the auto-configured RestClient.Builder. In Spring Boot 4 the
+          builder moved out of spring-boot-starter-web into its own module, and
+          building RestClient by hand instead would silently opt this hop out of the
+          Boot-managed message converters and, with it, out of HTTP client
+          observation - so the gateway call would be the one hop in the mesh with no
+          Micrometer client metrics.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-restclient</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.enterprise.mesh</groupId>
+            <artifactId>common-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.enterprise.mesh</groupId>
+            <artifactId>common-observability</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

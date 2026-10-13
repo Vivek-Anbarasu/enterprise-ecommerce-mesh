@@ -136,6 +136,16 @@ public class GatewaySecurityConfig {
         CorsConfiguration configuration = new CorsConfiguration();
         // Origin patterns (not plain origins) are required because credentials
         // are allowed; the deployed allow-list is narrowed by the ingress.
+        //
+        // The browser storefront is NOT one of these callers: it talks to
+        // bff-service, which is the component that actually holds a session
+        // cookie, and that service runs an enumerated allow-list rather than a
+        // pattern. What reaches this allow-list is the non-browser API surface -
+        // mobile apps and partner integrations, which send bearer tokens and have
+        // no ambient cookie to protect. If a browser surface is ever added here,
+        // narrow this to explicit origins first; a wildcard pattern alongside
+        // allowCredentials is only as safe as the credential it is paired with,
+        // and this one is a bearer token.
         configuration.setAllowedOriginPatterns(List.of("*"));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of(

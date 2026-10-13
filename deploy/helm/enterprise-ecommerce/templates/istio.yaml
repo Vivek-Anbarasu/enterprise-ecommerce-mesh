@@ -48,7 +48,38 @@ spec:
     # transport encryption with nothing in the logs to say so.
     mode: STRICT
 {{- $gatewaySvc := index .Values.services "api-gateway" }}
+{{- $bffSvc := index .Values.services "bff-service" }}
 {{- if and .Values.apiGateway .Values.apiGateway.enabled $gatewaySvc.enabled }}
+{{- if not $bffSvc }}
+{{- fail "apiGateway routes /bff to services.bff-service; define that entry or set it enabled:false and pin apiGateway.bffPathPrefixes to [] ." }}
+{{- end }}
+{{- /*
+The edge mTLS carve-out is per edge-exposed workload, not just the gateway. The
+BFF is entered by the same Application Gateway for Containers data plane, which
+runs outside the cluster with no SPIFFE identity to authenticate against, so the
+same reasoning applies to it: it needs PERMISSIVE on its serving port, and
+everything it calls stays STRICT.
+*/}}
+{{- range $edgeName, $edgeSvc := .Values.services }}
+{{- if and $edgeSvc.enabled $edgeSvc.edgeExposed (ne $edgeName "api-gateway") }}
+---
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: {{ $edgeName }}-edge-port
+  namespace: {{ $ns }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $edgeName }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    {{ $edgeSvc.port }}:
+      mode: PERMISSIVE
+{{- end }}
+{{- end }}
 ---
 # The one deliberate exception to STRICT above.
 #
@@ -134,6 +165,23 @@ spec:
     - from:
         - source:
             namespaces: ["observability", "istio-system"]
+    {{- if $bffSvc.enabled }}
+    # The BFF is the one in-mesh workload permitted to call the gateway.
+    #
+    # It has to be named explicitly: the BFF converts a browser's session cookie
+    # into a bearer token and then behaves like any other API client of the mesh,
+    # so it needs to reach the gateway's /api routes. Every other business service
+    # is reached through the gateway rather than around it, and a shared workload
+    # principal would have handed that permission to all of them at once.
+    #
+    # This does not let the BFF reach any business service directly - that is the
+    # gateway's route table - and the gateway re-validates the token regardless of
+    # who presented it.
+    - from:
+        - source:
+            principals:
+              - {{ printf "cluster.local/ns/%s/sa/%s-bff-service" $ns .Release.Name }}
+    {{- end }}
 ---
 # The waypoint itself has to be able to reach the backends it balances across.
 # Without this the waypoint's own egress is denied and every enrolled service
@@ -233,6 +281,22 @@ spec:
       app.kubernetes.io/instance: {{ $root.Release.Name }}
   action: ALLOW
   rules:
+    {{- if $service.edgeExposed }}
+    # Application Gateway for Containers, by address. This is the only thing
+    # outside the cluster that may reach {{ $name }}: AGC runs its data plane
+    # externally and has no SPIFFE identity to authorize by, so ipBlocks is the
+    # only attribute available. The matching NetworkPolicy in
+    # templates/serviceaccount.yaml uses the same CIDR list, and the two must
+    # agree or one silently wins.
+    {{- if and $root.Values.apiGateway $root.Values.apiGateway.enabled }}
+    - from:
+        - source:
+            ipBlocks:
+              {{- range $cidr := $root.Values.apiGateway.backendCidrs }}
+              - {{ $cidr | quote }}
+              {{- end }}
+    {{- end }}
+    {{- end }}
     - from:
         - source:
             principals:

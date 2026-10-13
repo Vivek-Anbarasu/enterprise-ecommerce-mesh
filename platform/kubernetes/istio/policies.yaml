@@ -62,6 +62,53 @@ spec:
     - from:
         - source:
             namespaces: ["observability", "istio-system"]
+    # The BFF is the one in-mesh workload permitted to call the gateway.
+    #
+    # It converts a browser's session cookie into a bearer token and then behaves
+    # like any other API client of the mesh, so it needs to reach the gateway's
+    # /api routes. Without this rule the BFF is denied by the namespace-wide
+    # default-deny, which presents as every authenticated page returning 401.
+    #
+    # Naming the BFF's own ServiceAccount is the point: a shared `-workload`
+    # principal would have handed this permission to every pod in the namespace.
+    # It does not let the BFF reach any business service directly - that is the
+    # gateway's route table - and the gateway re-validates the token regardless of
+    # who presented it.
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/ecommerce/sa/ecommerce-bff"
+---
+# The BFF is entered by Application Gateway for Containers, exactly like the
+# gateway: AGC's data plane runs outside the cluster and has no mesh identity to
+# authorize by, so it is allowed by address and by the namespace's own pods. Its
+# ztunnel is the enforcement point because it has no waypoint.
+#
+# The CIDR must match the `bff-service-edge-only` NetworkPolicy in
+# base/bff-service.yaml.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: bff-service-allow-edge
+  namespace: ecommerce
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bff-service
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            ipBlocks:
+              - "PLACEHOLDER_AGC_SUBNET_CIDR"
+    - from:
+        - source:
+            namespaces: ["observability", "istio-system"]
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/ecommerce/sa/ecommerce-workload"
+              - "cluster.local/ns/ecommerce/sa/ecommerce-bff"
 ---
 # The waypoint has to reach the backends it balances across. Without this its
 # own egress is denied and every enrolled service fails, which looks like an

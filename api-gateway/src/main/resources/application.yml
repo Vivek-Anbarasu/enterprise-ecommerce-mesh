@@ -33,7 +33,16 @@ spring:
       retry:
         enabled: true
       default-filters:
-        # Strip hop-by-hop headers so internal topology is not leaked.
+        # Hop-by-hop headers are stripped so internal topology is not leaked.
+        #
+        # Cookie is on that list deliberately, and the bff-service is why it
+        # matters. The BFF terminates a browser session cookie and exchanges it for
+        # a bearer token; if that cookie were forwarded, a server-side session
+        # identifier - a bearer credential in everything but name - would travel to
+        # every downstream service, where a log line, an error page or an SSRF
+        # could capture it. Stripping it here means the credential never leaves the
+        # edge that issued it. Everything downstream is authenticated by the token
+        # alone.
         - RemoveRequestHeader=Cookie
         - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_UNIQUE
       # Downstream targets are plain http:// against Kubernetes Service DNS names.
@@ -43,6 +52,16 @@ spring:
       # Client-side load balancing is therefore the cluster's job (kube-proxy or
       # Envoy), not the gateway's. Each *SVC_PORT matches the `port` of that
       # service's Kubernetes Service; MESH_*_URI still overrides the whole URI.
+      #
+      # Every route below is reachable by two kinds of caller. Direct clients -
+      # mobile, partner integrations, curl - present a bearer token and are
+      # charged against the limits below per tenant. The bff-service is also a
+      # caller of these same routes, having converted a browser session cookie
+      # into a bearer token first, so it is charged here too rather than being
+      # exempt. That is the right accounting: an aggregation costing four gateway
+      # calls is four calls' worth of load, and exempting the service that makes
+      # them would simply hide it. What the BFF buys is that the shopper waits for
+      # one round trip instead of four.
       routes:
         # ---------------- Read-heavy, anonymously browsable ----------------
         - id: product-catalog
