@@ -1,5 +1,5 @@
 package com.enterprise.mesh.cart.controller;
-
+import lombok.RequiredArgsConstructor;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.util.List;
@@ -38,14 +38,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestController
 @RequestMapping("/api/cart")
 @Tag(name = "Shopping Cart", description = "Session cart operations")
+@RequiredArgsConstructor
 public class ShoppingCartController {
 
     private final ShoppingCartService cartService;
-
-    public ShoppingCartController(ShoppingCartService cartService) {
-        this.cartService = cartService;
-    }
-
     public record AddItemRequest(
             @NotBlank @Size(max = 64) String sku,
             @NotBlank @Size(max = 256) String name,

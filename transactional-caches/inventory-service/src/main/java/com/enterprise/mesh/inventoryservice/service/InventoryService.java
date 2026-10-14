@@ -1,10 +1,9 @@
 package com.enterprise.mesh.inventoryservice.service;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
 import java.util.List;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
@@ -33,9 +32,9 @@ import com.enterprise.mesh.inventoryservice.repository.InventoryReservationRepos
  * nothing is able to release.
  */
 @Service
+@Slf4j
+@RequiredArgsConstructor
 public class InventoryService {
-
-    private static final Logger log = LoggerFactory.getLogger(InventoryService.class);
 
     /**
      * Optimistic-lock retries. Two shoppers racing for the last unit on a
@@ -48,17 +47,6 @@ public class InventoryService {
     private final InventoryReservationRepository reservationRepository;
     private final InventoryReservationLineRepository lineRepository;
     private final StockMutationService mutationService;
-
-    public InventoryService(InventoryItemRepository itemRepository,
-                            InventoryReservationRepository reservationRepository,
-                            InventoryReservationLineRepository lineRepository,
-                            StockMutationService mutationService) {
-        this.itemRepository = itemRepository;
-        this.reservationRepository = reservationRepository;
-        this.lineRepository = lineRepository;
-        this.mutationService = mutationService;
-    }
-
     /**
      * Holds stock for every requested line, or holds nothing.
      *

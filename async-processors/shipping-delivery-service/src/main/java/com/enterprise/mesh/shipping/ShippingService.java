@@ -1,12 +1,11 @@
 package com.enterprise.mesh.shipping;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -24,18 +23,12 @@ import com.enterprise.mesh.shipping.ShipmentRepository;
  * would double the shipping cost and confuse the customer.
  */
 @Service
+@Slf4j
+@RequiredArgsConstructor
 public class ShippingService {
-
-    private static final Logger log = LoggerFactory.getLogger(ShippingService.class);
 
     private final ShipmentRepository shipmentRepository;
     private final CarrierGateway carrierGateway;
-
-    public ShippingService(ShipmentRepository shipmentRepository, CarrierGateway carrierGateway) {
-        this.shipmentRepository = shipmentRepository;
-        this.carrierGateway = carrierGateway;
-    }
-
     /**
      * Creates (or returns) the shipment for an order and buys a label.
      *

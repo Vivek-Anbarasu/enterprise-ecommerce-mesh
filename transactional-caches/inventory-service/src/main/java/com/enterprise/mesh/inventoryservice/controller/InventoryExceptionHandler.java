@@ -1,13 +1,12 @@
 package com.enterprise.mesh.inventoryservice.controller;
 
+import lombok.extern.slf4j.Slf4j;
+
 import java.net.URI;
 import java.util.Map;
 
 import com.enterprise.mesh.inventoryservice.exception.ConcurrentStockUpdateException;
 import com.enterprise.mesh.inventoryservice.exception.InsufficientStockException;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
@@ -26,9 +25,9 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * "item sold out while you were deciding" situation.
  */
 @RestControllerAdvice
+@Slf4j
 public class InventoryExceptionHandler {
 
-    private static final Logger log = LoggerFactory.getLogger(InventoryExceptionHandler.class);
     private static final URI PROBLEM_BASE = URI.create("https://errors.enterprise-ecommerce.com/inventory/");
 
     @ExceptionHandler(InsufficientStockException.class)

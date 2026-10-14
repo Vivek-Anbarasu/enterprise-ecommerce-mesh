@@ -1,13 +1,12 @@
 package com.enterprise.mesh.payment.provider;
 
+import lombok.extern.slf4j.Slf4j;
+
 import java.math.BigDecimal;
 import java.security.SecureRandom;
 
 import com.enterprise.mesh.payment.domain.PaymentGateway;
 import com.enterprise.mesh.payment.domain.PaymentService;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -22,9 +21,9 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @ConditionalOnProperty(name = "mesh.payment.gateway", havingValue = "stub", matchIfMissing = true)
+@Slf4j
 public class StubPaymentGateway implements PaymentGateway {
 
-    private static final Logger log = LoggerFactory.getLogger(StubPaymentGateway.class);
     private final SecureRandom random = new SecureRandom();
 
     @Override

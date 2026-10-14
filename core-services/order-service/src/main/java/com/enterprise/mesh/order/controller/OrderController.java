@@ -1,5 +1,5 @@
 package com.enterprise.mesh.order.controller;
-
+import lombok.RequiredArgsConstructor;
 import java.util.Map;
 
 import jakarta.validation.Valid;
@@ -33,17 +33,11 @@ import org.slf4j.MDC;
 @RestController
 @RequestMapping("/api/orders")
 @Tag(name = "Orders", description = "Checkout and order lifecycle")
+@RequiredArgsConstructor
 public class OrderController {
 
     private final CheckoutSagaOrchestrator sagaOrchestrator;
     private final OrderRepository orderRepository;
-
-    public OrderController(CheckoutSagaOrchestrator sagaOrchestrator,
-                           OrderRepository orderRepository) {
-        this.sagaOrchestrator = sagaOrchestrator;
-        this.orderRepository = orderRepository;
-    }
-
     @PostMapping
     @PreAuthorize("hasAnyRole('CUSTOMER','SERVICE')")
     @Operation(summary = "Place an order (idempotent on the Idempotency-Key header)")

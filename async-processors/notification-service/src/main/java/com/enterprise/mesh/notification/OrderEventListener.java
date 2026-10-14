@@ -1,9 +1,9 @@
 package com.enterprise.mesh.notification;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.Map;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
 import org.springframework.kafka.annotation.KafkaListener;
@@ -25,16 +25,11 @@ import com.enterprise.mesh.messaging.event.CloudEventHeaders;
  * <p>Idempotency is delegated to {@link OrderEventHandler}.
  */
 @Component
+@Slf4j
+@RequiredArgsConstructor
 public class OrderEventListener {
 
-    private static final Logger log = LoggerFactory.getLogger(OrderEventListener.class);
-
     private final OrderEventHandler handler;
-
-    public OrderEventListener(OrderEventHandler handler) {
-        this.handler = handler;
-    }
-
     @KafkaListener(
             topics = MessagingTopics.ORDER_EVENTS,
             groupId = "${mesh.notification.consumer-group:notification-group}")

@@ -1,12 +1,11 @@
 package com.enterprise.mesh.payment.domain;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,18 +25,12 @@ import com.enterprise.mesh.payment.repository.PaymentRepository;
  * need network access.
  */
 @Service
+@Slf4j
+@RequiredArgsConstructor
 public class PaymentService {
-
-    private static final Logger log = LoggerFactory.getLogger(PaymentService.class);
 
     private final PaymentRepository paymentRepository;
     private final PaymentGateway gateway;
-
-    public PaymentService(PaymentRepository paymentRepository, PaymentGateway gateway) {
-        this.paymentRepository = paymentRepository;
-        this.gateway = gateway;
-    }
-
     /**
      * Authorises funds for an order.
      *

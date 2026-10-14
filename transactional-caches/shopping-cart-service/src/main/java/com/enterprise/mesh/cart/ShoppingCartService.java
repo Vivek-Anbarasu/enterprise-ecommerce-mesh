@@ -1,13 +1,12 @@
 package com.enterprise.mesh.cart;
 
+import lombok.extern.slf4j.Slf4j;
+
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -24,9 +23,8 @@ import org.springframework.stereotype.Service;
  * mid-session, while an abandoned one disappears on its own.
  */
 @Service
+@Slf4j
 public class ShoppingCartService {
-
-    private static final Logger log = LoggerFactory.getLogger(ShoppingCartService.class);
 
     /** Guardrail against a runaway client filling the cart key. */
     private static final int MAX_LINES = 200;

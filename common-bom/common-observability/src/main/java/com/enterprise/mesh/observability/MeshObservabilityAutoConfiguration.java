@@ -1,14 +1,13 @@
 package com.enterprise.mesh.observability;
 
+import lombok.extern.slf4j.Slf4j;
+
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.config.MeterFilter;
 import io.micrometer.core.instrument.config.MeterFilterReply;
 import io.micrometer.prometheusmetrics.PrometheusConfig;
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -27,9 +26,8 @@ import org.springframework.core.env.Environment;
 @AutoConfiguration
 @ConditionalOnClass(MeterRegistry.class)
 @EnableConfigurationProperties(MeshObservabilityProperties.class)
+@Slf4j
 public class MeshObservabilityAutoConfiguration {
-
-    private static final Logger log = LoggerFactory.getLogger(MeshObservabilityAutoConfiguration.class);
 
     @Bean
     @ConditionalOnMissingBean

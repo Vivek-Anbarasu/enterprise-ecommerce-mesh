@@ -1,5 +1,5 @@
 package com.enterprise.mesh.review.controller;
-
+import lombok.RequiredArgsConstructor;
 import java.net.URI;
 import java.util.List;
 
@@ -35,14 +35,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestController
 @RequestMapping("/api/reviews")
 @Tag(name = "Reviews", description = "Product reviews and ratings")
+@RequiredArgsConstructor
 public class ReviewController {
 
     private final ReviewService reviewService;
-
-    public ReviewController(ReviewService reviewService) {
-        this.reviewService = reviewService;
-    }
-
     public record SubmitReviewRequest(
             @NotBlank @Size(max = 64) String productId,
             @Min(1) @Max(5) int rating,

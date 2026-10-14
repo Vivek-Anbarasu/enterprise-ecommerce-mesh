@@ -1,10 +1,9 @@
 package com.enterprise.mesh.order.saga;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.time.Instant;
 import java.util.List;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -34,28 +33,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @Component
 @ConditionalOnProperty(prefix = "mesh.outbox", name = "relay-enabled",
         havingValue = "true", matchIfMissing = true)
+@Slf4j
+@RequiredArgsConstructor
 public class OutboxRelay {
-
-    private static final Logger log = LoggerFactory.getLogger(OutboxRelay.class);
 
     private final OutboxStore outboxStore;
     private final EventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
     private final int batchSize;
     private final int maxAttempts;
-
-    public OutboxRelay(OutboxStore outboxStore,
-                       EventPublisher eventPublisher,
-                       ObjectMapper objectMapper,
-                       @Value("${mesh.outbox.batch-size:100}") int batchSize,
-                       @Value("${mesh.outbox.max-attempts:10}") int maxAttempts) {
-        this.outboxStore = outboxStore;
-        this.eventPublisher = eventPublisher;
-        this.objectMapper = objectMapper;
-        this.batchSize = batchSize;
-        this.maxAttempts = maxAttempts;
-    }
-
     @Scheduled(fixedDelayString = "${mesh.outbox.poll-interval-ms:1000}")
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void relayPendingEvents() {

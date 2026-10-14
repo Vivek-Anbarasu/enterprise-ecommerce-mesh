@@ -1,14 +1,13 @@
 package com.enterprise.mesh.security;
 
+import lombok.extern.slf4j.Slf4j;
+
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
 import tools.jackson.databind.ObjectMapper;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -56,6 +55,7 @@ import com.enterprise.mesh.security.tenant.TenantContextFilter;
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @EnableConfigurationProperties(MeshSecurityProperties.class)
 @EnableMethodSecurity
+@Slf4j
 public class MeshSecurityAutoConfiguration {
 
     static final URI PROBLEM_BASE_URI = URI.create("https://errors.enterprise-ecommerce.com/");
@@ -125,8 +125,6 @@ public class MeshSecurityAutoConfiguration {
         source.registerCorsConfiguration("/**", configuration);
         return source;
     }
-
-    private static final Logger log = LoggerFactory.getLogger(MeshSecurityAutoConfiguration.class);
 
     @Bean
     @ConditionalOnMissingBean(SecurityFilterChain.class)

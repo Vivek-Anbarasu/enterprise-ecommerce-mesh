@@ -1,5 +1,5 @@
 package com.enterprise.mesh.catalog.controller;
-
+import lombok.RequiredArgsConstructor;
 import java.net.URI;
 import java.time.Instant;
 import java.util.List;
@@ -29,14 +29,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestController
 @RequestMapping("/api/products")
 @Tag(name = "Catalogue", description = "Product browse and management")
+@RequiredArgsConstructor
 public class ProductController {
 
     private final ProductCatalogService catalogService;
-
-    public ProductController(ProductCatalogService catalogService) {
-        this.catalogService = catalogService;
-    }
-
     public record ProductPage(List<Product> content, long totalElements, int page, int size) {
     }
 

@@ -22,6 +22,20 @@
         <testcontainers.version>2.0.5</testcontainers.version>
         <springdoc.version>3.1.1</springdoc.version>
         <jib.version>3.5.2</jib.version>
+        <!-- Overrides the version Spring Boot manages, which is 1.18.46.
+             1.18.46 crashes on JDK 27: Lombok's ShadowClassLoader loads javac
+             internals reflectively, and com.sun.tools.javac.tree.EndPosTable was
+             removed from the JDK. The ClassNotFoundException is thrown inside a
+             static initialiser, so it surfaces as ExceptionInInitializerError and
+             takes the whole compile with it.
+
+             The override is deliberate and must survive dependency upgrades. When
+             bumping Spring Boot, check whether this line is still needed; it is
+             not a version we need for its own sake, only to stay ahead of the JDK
+             we develop on. Note the build containers pin temurin 25, so CI can be
+             green on an older Lombok while a developer's local build fails - the
+             failure is JDK-specific, not universal. -->
+        <lombok.version>1.18.48</lombok.version>
         <!-- Pinned to the exact version spring-cloud-starter-circuitbreaker-resilience4j
              pulls in for circuitbreaker and timelimiter. The semaphore bulkhead the
              gateway uses for route isolation is released separately by that starter, so
@@ -57,6 +71,23 @@
 
     <dependencyManagement>
         <dependencies>
+            <!-- Must precede the spring-boot-dependencies import. In Maven the
+                 first matching entry in dependencyManagement wins, and an imported
+                 BOM is just another entry in that list - so declaring Lombok here is
+                 what actually overrides the BOM's 1.18.46.
+
+                 The <lombok.version> property above does NOT do this. It works when
+                 Spring Boot is inherited as a parent, because the property is then
+                 resolved in the same POM that reads it. This project IMPORTS the BOM,
+                 and an imported POM interpolates its own properties in its own
+                 context, so our value is simply never consulted. Verified: with only
+                 the property set, dependency:tree still reported 1.18.46 and the
+                 build failed in inventory-service. -->
+            <dependency>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok</artifactId>
+                <version>${lombok.version}</version>
+            </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
@@ -122,6 +153,20 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- Inherited by every module, like the test starter above.
+             Declared here rather than through maven-compiler-plugin's
+             annotationProcessorPaths on purpose: common-observability relies on
+             spring-boot-configuration-processor, which is discovered off the
+             classpath, and annotationProcessorPaths would replace that discovery.
+             Pair this with -proc:full in the compiler args above - on javac 27 a
+             classpath processor that is not explicitly enabled does not run.
+             provided: Lombok must never reach a runtime image. -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -136,6 +181,19 @@
                         <parameters>true</parameters>
                         <compilerArgs>
                             <arg>-Xlint:all,-processing,-serial</arg>
+                            <!-- Required, not cosmetic. javac 27 does NOT run annotation
+                                 processors found on the class path unless told to. Without
+                                 this, Lombok is on the classpath and silently does nothing,
+                                 and every @RequiredArgsConstructor class fails with
+                                 "variable ... not initialized in the default constructor".
+                                 A silent no-op, not an error you can trace to Lombok.
+
+                                 -proc:full rather than maven-compiler-plugin's
+                                 annotationProcessorPaths: the latter replaces class-path
+                                 discovery, which would stop common-observability's
+                                 spring-boot-configuration-processor from generating
+                                 configuration metadata for every service. -->
+                            <arg>-proc:full</arg>
                         </compilerArgs>
                     </configuration>
                 </plugin>

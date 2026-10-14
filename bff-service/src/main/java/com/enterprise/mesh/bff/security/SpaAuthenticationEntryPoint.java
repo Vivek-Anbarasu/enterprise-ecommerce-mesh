@@ -1,4 +1,6 @@
 package com.enterprise.mesh.bff.security;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
 import java.net.URI;
@@ -9,9 +11,6 @@ import tools.jackson.databind.ObjectMapper;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -34,19 +33,14 @@ import org.springframework.security.web.AuthenticationEntryPoint;
  * client should retry with, and this service does not accept bearer tokens at all.
  * Advertising one would send mobile clients down a path that cannot work here.
  */
+@Slf4j
+@RequiredArgsConstructor
 public class SpaAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
-    private static final Logger log = LoggerFactory.getLogger(SpaAuthenticationEntryPoint.class);
     private static final URI BASE = URI.create("https://errors.enterprise-ecommerce.com/bff/");
 
     private final ObjectMapper objectMapper;
     private final String authorizationUri;
-
-    public SpaAuthenticationEntryPoint(ObjectMapper objectMapper, String authorizationUri) {
-        this.objectMapper = objectMapper;
-        this.authorizationUri = authorizationUri;
-    }
-
     @Override
     public void commence(HttpServletRequest request, HttpServletResponse response,
                          AuthenticationException authException) throws IOException {

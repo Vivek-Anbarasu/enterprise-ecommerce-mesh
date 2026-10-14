@@ -1,5 +1,5 @@
 package com.enterprise.mesh.bff.controller;
-
+import lombok.RequiredArgsConstructor;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -30,14 +30,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/bff/api")
 @Tag(name = "BFF Storefront", description = "Aggregated page payloads for the SPA")
+@RequiredArgsConstructor
 public class StorefrontController {
 
     private final BffAggregationService aggregationService;
-
-    public StorefrontController(BffAggregationService aggregationService) {
-        this.aggregationService = aggregationService;
-    }
-
     @GetMapping("/public/storefront")
     @Operation(summary = "Home page payload, anonymously browsable")
     public StorefrontView storefront() {

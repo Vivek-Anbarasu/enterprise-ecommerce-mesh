@@ -1,13 +1,13 @@
 package com.enterprise.mesh.order.saga;
 
+import lombok.extern.slf4j.Slf4j;
+
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -39,9 +39,8 @@ import com.enterprise.mesh.order.persistence.OrderRepository;
  * never published.
  */
 @Service
+@Slf4j
 public class CheckoutSagaOrchestrator {
-
-    private static final Logger log = LoggerFactory.getLogger(CheckoutSagaOrchestrator.class);
 
     private final OrderRepository orderRepository;
     private final OutboxService outboxService;

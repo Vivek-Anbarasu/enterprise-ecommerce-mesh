@@ -1,11 +1,10 @@
 package com.enterprise.mesh.order.saga;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -30,21 +29,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * failure is what prevents an order existing with no corresponding event.
  */
 @Service
+@Slf4j
+@RequiredArgsConstructor
 public class OutboxService {
-
-    private static final Logger log = LoggerFactory.getLogger(OutboxService.class);
 
     /** Bounded so a bug cannot enqueue an unbounded payload. */
     private static final int MAX_PAYLOAD_BYTES = 256 * 1024;
 
     private final OutboxEventRepository outboxRepository;
     private final ObjectMapper objectMapper;
-
-    public OutboxService(OutboxEventRepository outboxRepository, ObjectMapper objectMapper) {
-        this.outboxRepository = outboxRepository;
-        this.objectMapper = objectMapper;
-    }
-
     @Transactional(propagation = Propagation.MANDATORY)
     public void record(String topic, Object payload, EventMetadata metadata) {
         String json = serialise(payload, metadata);

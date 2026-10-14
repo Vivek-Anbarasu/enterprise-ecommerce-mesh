@@ -1,5 +1,5 @@
 package com.enterprise.mesh.payment.controller;
-
+import lombok.RequiredArgsConstructor;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -33,16 +33,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/payments")
 @Tag(name = "Payments", description = "Authorisation, capture and refunds")
+@RequiredArgsConstructor
 public class PaymentController {
 
     private final PaymentService paymentService;
     private final PaymentRepository paymentRepository;
-
-    public PaymentController(PaymentService paymentService, PaymentRepository paymentRepository) {
-        this.paymentService = paymentService;
-        this.paymentRepository = paymentRepository;
-    }
-
     public record AuthorisationRequest(
             @NotBlank @Size(max = 64) String orderId,
             @NotNull @DecimalMin(value = "0.01")

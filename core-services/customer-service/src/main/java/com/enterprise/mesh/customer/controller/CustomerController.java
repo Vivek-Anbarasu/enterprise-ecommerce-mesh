@@ -1,5 +1,5 @@
 package com.enterprise.mesh.customer.controller;
-
+import lombok.RequiredArgsConstructor;
 import java.net.URI;
 import java.time.Instant;
 import java.util.List;
@@ -39,14 +39,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestController
 @RequestMapping("/api/customers")
 @Tag(name = "Customers", description = "Profiles and addresses")
+@RequiredArgsConstructor
 public class CustomerController {
 
     private final CustomerService customerService;
-
-    public CustomerController(CustomerService customerService) {
-        this.customerService = customerService;
-    }
-
     public record ProfileResponse(String id, String email, String displayName, String phone,
                                   CustomerStatus status, boolean marketingOptIn,
                                   String locale, String timezone, Instant createdAt) {

@@ -1,9 +1,8 @@
 package com.enterprise.mesh.notification;
 
-import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.util.Map;
 
 import org.springframework.stereotype.Component;
 
@@ -22,9 +21,8 @@ public interface NotificationDispatcher {
 
     /** Logging implementation; no external calls. */
     @Component
+    @Slf4j
     class LoggingDispatcher implements NotificationDispatcher {
-
-        private static final Logger log = LoggerFactory.getLogger(LoggingDispatcher.class);
 
         @Override
         public void dispatch(String customerId, String eventType, String orderId,

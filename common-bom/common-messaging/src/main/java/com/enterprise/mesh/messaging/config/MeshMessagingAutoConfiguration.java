@@ -1,5 +1,7 @@
 package com.enterprise.mesh.messaging.config;
 
+import lombok.extern.slf4j.Slf4j;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -9,9 +11,6 @@ import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -51,9 +50,8 @@ import com.enterprise.mesh.messaging.publisher.KafkaEventPublisher;
 @ConditionalOnClass(KafkaTemplate.class)
 @EnableKafka
 @EnableConfigurationProperties(MeshMessagingProperties.class)
+@Slf4j
 public class MeshMessagingAutoConfiguration {
-
-    private static final Logger log = LoggerFactory.getLogger(MeshMessagingAutoConfiguration.class);
 
     @Bean
     @ConditionalOnMissingBean

@@ -1,4 +1,6 @@
 package com.enterprise.mesh.security.handler;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
 import java.net.URI;
@@ -8,9 +10,6 @@ import tools.jackson.databind.ObjectMapper;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
@@ -24,18 +23,12 @@ import org.springframework.security.web.access.AccessDeniedHandler;
  * Renders authorization failures as RFC 9457 problem documents and
  * distinguishes 401 (anonymous) from 403 (authenticated but not permitted).
  */
+@Slf4j
+@RequiredArgsConstructor
 public class ProblemDetailAccessDeniedHandler implements AccessDeniedHandler {
-
-    private static final Logger log = LoggerFactory.getLogger(ProblemDetailAccessDeniedHandler.class);
 
     private final ObjectMapper objectMapper;
     private final URI problemBaseUri;
-
-    public ProblemDetailAccessDeniedHandler(ObjectMapper objectMapper, URI problemBaseUri) {
-        this.objectMapper = objectMapper;
-        this.problemBaseUri = problemBaseUri;
-    }
-
     @Override
     public void handle(HttpServletRequest request, HttpServletResponse response,
                        AccessDeniedException accessDeniedException) throws IOException {
