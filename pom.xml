@@ -22,6 +22,12 @@
         <testcontainers.version>2.0.5</testcontainers.version>
         <springdoc.version>3.1.1</springdoc.version>
         <jib.version>3.5.2</jib.version>
+        <!-- Pinned to the exact version spring-cloud-starter-circuitbreaker-resilience4j
+             pulls in for circuitbreaker and timelimiter. The semaphore bulkhead the
+             gateway uses for route isolation is released separately by that starter, so
+             it has to be requested explicitly; declaring it without a version here would
+             let it drift away from the circuit breaker it is configured alongside. -->
+        <resilience4j.version>2.3.0</resilience4j.version>
 
         <!-- Container image coordinates; override in CI with -D -->
         <docker.registry>acrenterprise.azurecr.io</docker.registry>
@@ -95,6 +101,16 @@
                 <groupId>org.springdoc</groupId>
                 <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
                 <version>${springdoc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.resilience4j</groupId>
+                <artifactId>resilience4j-bulkhead</artifactId>
+                <version>${resilience4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.resilience4j</groupId>
+                <artifactId>resilience4j-reactor</artifactId>
+                <version>${resilience4j.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

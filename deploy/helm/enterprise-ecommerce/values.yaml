@@ -110,6 +110,12 @@ services:
     # Cloud Gateway, where the business context lives. ztunnel still gives it
     # mTLS on every call it makes downstream.
     waypoint: false
+    # Reachable from Application Gateway for Containers, and from nothing else.
+    # Drives the edge NetworkPolicy. The gateway has always had one of these; the
+    # flag is what replaced the hand-written policy that used to live in
+    # templates/serviceaccount.yaml. Removing it silently deletes the network
+    # control, because the default-deny still applies and nothing re-opens 8080.
+    edgeExposed: true
     image:
       repository: api-gateway
       tag: ""            # defaults to .Chart.AppVersion
@@ -392,6 +398,48 @@ apiGateway:
   # or from a pod: conntrack / the api-gateway access log's source address.
   backendCidrs:
     - "10.0.0.0/24"
+
+# ---------------------------------------------------------------------------
+# Edge WAF: per-client-IP rate limiting, enforced before traffic reaches the
+# cluster.
+#
+# This is the ONLY layer that still sees a real client IP for browser traffic.
+# The api-gateway cannot do this job: once bff-service is in front, every
+# anonymous storefront request arrives from a BFF pod address, so per-IP limiting
+# at the gateway would pool every shopper in the world into one bucket. AGC
+# terminates ahead of the BFF and still holds the true address.
+#
+# WAF on Application Gateway for Containers is two-sided and BOTH halves are
+# required:
+#   * deploy/bicep/waf-policy.bicep -> Azure policy + SecurityPolicy child
+#     resource. Not a Kubernetes object, so no chart template can create it.
+#   * templates/web-application-firewall.yaml -> this: which policy, what scope.
+#
+# Half of either is a silent no-op - AGC reports the policy as associated, but
+# inspects no traffic and emits no firewall logs.
+#
+# Off by default because it depends on the Azure half existing first. Deploy the
+# Bicep, take its output ID, then set enabled: true.
+#
+# The thresholds (limit and window) are parameters of the Bicep, not values here.
+# This block carries only a reference and a scope, so the numbers have exactly
+# one home and cannot drift.
+# ---------------------------------------------------------------------------
+webApplicationFirewall:
+  enabled: false
+  name: ""                # defaults to <release>-waf
+  # ARM ID of the policy created by deploy/bicep/waf-policy.bicep. Must be in the
+  # same subscription AND region as the Application Gateway for Containers
+  # resource, or the association silently fails.
+  policyResourceId: ""
+  target:
+    kind: Gateway
+    # Empty inherits apiGateway.name. Overriding is a footgun: a typo yields a
+    # policy that reports itself unattached rather than one that fails loudly.
+    name: ""
+    # Scope to a named listener, e.g. ["https"]. Empty covers the whole Gateway,
+    # which is what you want unless a listener is deliberately excluded.
+    sectionNames: []
 
 # ---------------------------------------------------------------------------
 # Platform components installed alongside the mesh.
