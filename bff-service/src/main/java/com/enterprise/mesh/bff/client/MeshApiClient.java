@@ -1,11 +1,10 @@
 package com.enterprise.mesh.bff.client;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import tools.jackson.databind.JsonNode;
 
 import com.enterprise.mesh.bff.session.SessionTokens;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -31,18 +30,13 @@ import org.springframework.web.client.RestClientResponseException;
  * of every downstream DTO would drift the first time a service added a field.
  */
 @Component
+@Slf4j
+@RequiredArgsConstructor
 public class MeshApiClient {
-
-    private static final Logger log = LoggerFactory.getLogger(MeshApiClient.class);
 
     public static final String TENANT_HEADER = "X-Tenant-ID";
 
     private final RestClient restClient;
-
-    public MeshApiClient(RestClient meshRestClient) {
-        this.restClient = meshRestClient;
-    }
-
     /** Anonymous call, for surfaces the mesh serves without a principal. */
     public JsonNode get(String path) {
         return exchange(path, null);

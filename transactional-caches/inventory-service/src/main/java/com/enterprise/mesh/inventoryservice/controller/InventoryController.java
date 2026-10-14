@@ -1,5 +1,5 @@
 package com.enterprise.mesh.inventoryservice.controller;
-
+import lombok.RequiredArgsConstructor;
 import java.util.List;
 
 import jakarta.validation.Valid;
@@ -40,14 +40,10 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 @RequestMapping("/api/inventory")
 @Validated
 @Tag(name = "Inventory", description = "Stock levels and checkout reservations")
+@RequiredArgsConstructor
 public class InventoryController {
 
     private final InventoryService inventoryService;
-
-    public InventoryController(InventoryService inventoryService) {
-        this.inventoryService = inventoryService;
-    }
-
     @GetMapping("/{sku}")
     @PreAuthorize("hasAnyRole('CUSTOMER','ADMIN','SERVICE')")
     @Operation(summary = "Current sellable availability for a SKU")

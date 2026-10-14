@@ -7,6 +7,8 @@ import com.enterprise.mesh.ai.service.RecommendationService;
 import com.enterprise.mesh.ai.service.RecommendationService.InteractionType;
 import com.enterprise.mesh.ai.service.RecommendationService.ScoredProduct;
 
+import lombok.RequiredArgsConstructor;
+
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
@@ -25,13 +27,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/ai")
 @Tag(name = "Personalisation", description = "Recommendations and behavioural profile")
+@RequiredArgsConstructor
 public class RecommendationController {
 
     private final RecommendationService recommendationService;
-
-    public RecommendationController(RecommendationService recommendationService) {
-        this.recommendationService = recommendationService;
-    }
 
     public record InteractionRequest(String category, InteractionType interactionType) {
     }

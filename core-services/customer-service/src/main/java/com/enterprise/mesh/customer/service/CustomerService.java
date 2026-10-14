@@ -1,10 +1,9 @@
 package com.enterprise.mesh.customer.service;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
 import java.util.UUID;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -22,16 +21,11 @@ import com.enterprise.mesh.customer.repository.CustomerRepository;
  * of silently acquiring a second one.
  */
 @Service
+@Slf4j
+@RequiredArgsConstructor
 public class CustomerService {
 
-    private static final Logger log = LoggerFactory.getLogger(CustomerService.class);
-
     private final CustomerRepository customerRepository;
-
-    public CustomerService(CustomerRepository customerRepository) {
-        this.customerRepository = customerRepository;
-    }
-
     /**
      * Returns the caller's profile, creating it on first sign-in.
      *

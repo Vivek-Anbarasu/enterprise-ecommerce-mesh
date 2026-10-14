@@ -1,13 +1,12 @@
 package com.enterprise.mesh.order.controller;
 
+import lombok.extern.slf4j.Slf4j;
+
 import java.net.URI;
 import java.util.Map;
 
 import com.enterprise.mesh.order.domain.Order;
 import com.enterprise.mesh.order.saga.CheckoutSagaOrchestrator;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -16,9 +15,9 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /** Maps order-service failures to RFC 9457 problem documents. */
 @RestControllerAdvice
+@Slf4j
 public class OrderExceptionHandler {
 
-    private static final Logger log = LoggerFactory.getLogger(OrderExceptionHandler.class);
     private static final URI BASE = URI.create("https://errors.enterprise-ecommerce.com/order/");
 
     @ExceptionHandler(OrderController.OrderNotFoundException.class)

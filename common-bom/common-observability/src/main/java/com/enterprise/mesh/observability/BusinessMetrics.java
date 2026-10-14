@@ -1,5 +1,5 @@
 package com.enterprise.mesh.observability;
-
+import lombok.RequiredArgsConstructor;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
@@ -20,16 +20,12 @@ import org.springframework.stereotype.Component;
  * here keeps request paths off the registry's internal maps.
  */
 @Component
+@RequiredArgsConstructor
 public class BusinessMetrics {
 
     private final MeterRegistry registry;
     private final ConcurrentHashMap<String, Counter> counters = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicLong> gauges = new ConcurrentHashMap<>();
-
-    public BusinessMetrics(MeterRegistry registry) {
-        this.registry = registry;
-    }
-
     /** Increments {@code mesh_business_events_total} for the given domain and outcome. */
     public void recordOutcome(String domain, String outcome) {
         counters.computeIfAbsent("mesh_business_events_total",

@@ -1,12 +1,11 @@
 package com.enterprise.mesh.gateway.config;
 
+import lombok.extern.slf4j.Slf4j;
+
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
@@ -46,9 +45,8 @@ import reactor.core.publisher.Mono;
 @Configuration
 @EnableWebFluxSecurity
 @EnableMethodSecurity
+@Slf4j
 public class GatewaySecurityConfig {
-
-    private static final Logger log = LoggerFactory.getLogger(GatewaySecurityConfig.class);
 
     @Bean
     public SecurityWebFilterChain gatewaySecurityFilterChain(

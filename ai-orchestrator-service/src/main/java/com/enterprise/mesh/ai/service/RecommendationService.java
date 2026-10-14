@@ -1,12 +1,11 @@
 package com.enterprise.mesh.ai.service;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,9 +23,9 @@ import com.enterprise.mesh.ai.repository.ProductAffinityRepository;
  * touching the API or storage.
  */
 @Service
+@Slf4j
+@RequiredArgsConstructor
 public class RecommendationService {
-
-    private static final Logger log = LoggerFactory.getLogger(RecommendationService.class);
 
     /** Below this score a shopper has no meaningful preference. */
     private static final double MIN_USEFUL_SCORE = 0.2d;
@@ -34,11 +33,6 @@ public class RecommendationService {
     private static final int MAX_RECOMMENDATIONS = 20;
 
     private final ProductAffinityRepository affinityRepository;
-
-    public RecommendationService(ProductAffinityRepository affinityRepository) {
-        this.affinityRepository = affinityRepository;
-    }
-
     /**
      * Records an interaction with a category.
      *

@@ -1,5 +1,5 @@
 package com.enterprise.mesh.order.saga;
-
+import lombok.RequiredArgsConstructor;
 import java.time.Instant;
 import java.util.List;
 
@@ -20,14 +20,10 @@ import com.enterprise.mesh.order.persistence.OutboxEventRepository;
  * no database resources while it is talking to Kafka.
  */
 @Service
+@RequiredArgsConstructor
 public class OutboxStore {
 
     private final OutboxEventRepository outboxRepository;
-
-    public OutboxStore(OutboxEventRepository outboxRepository) {
-        this.outboxRepository = outboxRepository;
-    }
-
     /**
      * Claims up to {@code limit} rows for relay.
      *

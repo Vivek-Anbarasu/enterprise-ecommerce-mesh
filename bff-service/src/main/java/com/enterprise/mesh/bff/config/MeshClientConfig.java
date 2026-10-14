@@ -1,8 +1,7 @@
 package com.enterprise.mesh.bff.config;
 
+import lombok.extern.slf4j.Slf4j;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
 import org.springframework.context.annotation.Bean;
@@ -22,9 +21,8 @@ import org.springframework.web.client.RestClient;
  * hung gateway cannot pin a Tomcat thread until the pool drains.
  */
 @Configuration
+@Slf4j
 public class MeshClientConfig {
-
-    private static final Logger log = LoggerFactory.getLogger(MeshClientConfig.class);
 
     /** Must match CorrelationIdFilter.HEADER in common-observability. */
     private static final String CORRELATION_HEADER = "X-Request-ID";

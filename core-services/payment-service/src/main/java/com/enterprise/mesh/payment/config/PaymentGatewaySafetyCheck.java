@@ -1,7 +1,6 @@
 package com.enterprise.mesh.payment.config;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.core.env.Environment;
@@ -21,20 +20,15 @@ import org.springframework.stereotype.Component;
  * is invisible in every metric and log line.
  */
 @Component
+@Slf4j
+@RequiredArgsConstructor
 public class PaymentGatewaySafetyCheck implements InitializingBean {
-
-    private static final Logger log = LoggerFactory.getLogger(PaymentGatewaySafetyCheck.class);
 
     /** Environments where a simulated gateway is a programming error. */
     private static final java.util.Set<String> PRODUCTION_ENVIRONMENTS =
             java.util.Set.of("prod", "production", "aks-prod", "live");
 
     private final Environment environment;
-
-    public PaymentGatewaySafetyCheck(Environment environment) {
-        this.environment = environment;
-    }
-
     @Override
     public void afterPropertiesSet() {
         String gateway = environment.getProperty("mesh.payment.gateway", "stub");

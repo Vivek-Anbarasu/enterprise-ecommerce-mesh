@@ -1,5 +1,5 @@
 package com.enterprise.mesh.shipping.controller;
-
+import lombok.RequiredArgsConstructor;
 import java.time.Instant;
 import java.util.List;
 
@@ -24,14 +24,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/internal/shipping")
 @Tag(name = "Shipping", description = "Shipment lifecycle")
+@RequiredArgsConstructor
 public class ShippingController {
 
     private final ShippingService shippingService;
-
-    public ShippingController(ShippingService shippingService) {
-        this.shippingService = shippingService;
-    }
-
     public record ShipmentResponse(String id, String orderId, ShipmentStatus status,
                                    String carrier, String trackingNumber, String labelUrl,
                                    String estimatedDelivery, Instant deliveredAt,

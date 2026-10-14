@@ -1,9 +1,8 @@
 package com.enterprise.mesh.notification;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.time.Instant;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -18,21 +17,15 @@ import org.springframework.stereotype.Service;
  * commercial electronic message per consent).
  */
 @Service
+@Slf4j
+@RequiredArgsConstructor
 public class OrderEventHandler {
-
-    private static final Logger log = LoggerFactory.getLogger(OrderEventHandler.class);
 
     /** Redis key prefix for the de-duplication window. */
     private static final String DEDUPE_PREFIX = "notified:";
 
     private final StringRedisTemplate redis;
     private final NotificationDispatcher dispatcher;
-
-    public OrderEventHandler(StringRedisTemplate redis, NotificationDispatcher dispatcher) {
-        this.redis = redis;
-        this.dispatcher = dispatcher;
-    }
-
     /**
      * @param eventId     used for de-duplication
      * @param orderId     aggregate the notification refers to

@@ -1,10 +1,9 @@
 package com.enterprise.mesh.inventoryservice.service;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.time.Instant;
 import java.util.List;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -34,26 +33,14 @@ import com.enterprise.mesh.inventoryservice.repository.InventoryReservationRepos
 @Component
 @ConditionalOnProperty(prefix = "mesh.inventory.sweeper", name = "enabled",
         havingValue = "true", matchIfMissing = true)
+@Slf4j
+@RequiredArgsConstructor
 public class ReservationExpirySweeper {
-
-    private static final Logger log = LoggerFactory.getLogger(ReservationExpirySweeper.class);
 
     private final InventoryReservationRepository reservationRepository;
     private final InventoryReservationLineRepository lineRepository;
     private final StockMutationService mutationService;
     private final int batchSize;
-
-    public ReservationExpirySweeper(
-            InventoryReservationRepository reservationRepository,
-            InventoryReservationLineRepository lineRepository,
-            StockMutationService mutationService,
-            @Value("${mesh.inventory.sweeper.batch-size:200}") int batchSize) {
-        this.reservationRepository = reservationRepository;
-        this.lineRepository = lineRepository;
-        this.mutationService = mutationService;
-        this.batchSize = batchSize;
-    }
-
     @Scheduled(fixedDelayString = "${mesh.inventory.sweeper.interval-ms:60000}")
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void sweepExpiredReservations() {

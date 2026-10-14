@@ -1,5 +1,7 @@
 package com.enterprise.mesh.bff.controller;
 
+import lombok.extern.slf4j.Slf4j;
+
 import java.net.URI;
 import java.util.Map;
 
@@ -7,9 +9,6 @@ import com.enterprise.mesh.bff.client.DownstreamException;
 import com.enterprise.mesh.bff.client.DownstreamUnauthorizedException;
 import com.enterprise.mesh.bff.config.BffSecurityConfig;
 import com.enterprise.mesh.bff.session.SessionExpiredException;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -22,9 +21,9 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * other service in the mesh already publishes.
  */
 @RestControllerAdvice
+@Slf4j
 public class BffExceptionHandler {
 
-    private static final Logger log = LoggerFactory.getLogger(BffExceptionHandler.class);
     private static final URI BASE = URI.create("https://errors.enterprise-ecommerce.com/bff/");
 
     /**

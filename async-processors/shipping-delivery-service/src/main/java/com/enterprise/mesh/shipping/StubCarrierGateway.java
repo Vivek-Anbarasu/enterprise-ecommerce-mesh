@@ -1,11 +1,10 @@
 package com.enterprise.mesh.shipping;
 
+import lombok.extern.slf4j.Slf4j;
+
 import java.security.SecureRandom;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.stereotype.Component;
 
@@ -17,9 +16,9 @@ import org.springframework.stereotype.Component;
  * the carrier SDK and exclude this one.
  */
 @Component
+@Slf4j
 public class StubCarrierGateway implements ShippingService.CarrierGateway {
 
-    private static final Logger log = LoggerFactory.getLogger(StubCarrierGateway.class);
     private static final DateTimeFormatter ETA = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     private final SecureRandom random = new SecureRandom();

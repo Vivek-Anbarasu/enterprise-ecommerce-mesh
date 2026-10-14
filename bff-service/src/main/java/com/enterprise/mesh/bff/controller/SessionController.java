@@ -1,5 +1,5 @@
 package com.enterprise.mesh.bff.controller;
-
+import lombok.RequiredArgsConstructor;
 import java.util.List;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -32,16 +32,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/bff/api")
 @Tag(name = "BFF Session", description = "Who am I, and for how long")
+@RequiredArgsConstructor
 public class SessionController {
 
     private static final String ROLE_PREFIX = "ROLE_";
 
     private final SessionTokenService sessionTokenService;
-
-    public SessionController(SessionTokenService sessionTokenService) {
-        this.sessionTokenService = sessionTokenService;
-    }
-
     @GetMapping("/session")
     @Operation(summary = "Describe the current session")
     public SessionView session(HttpServletRequest request, HttpServletResponse response,

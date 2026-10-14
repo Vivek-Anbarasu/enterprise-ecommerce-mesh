@@ -1,5 +1,7 @@
 package com.enterprise.mesh.bff.config;
 
+import lombok.extern.slf4j.Slf4j;
+
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Clock;
@@ -11,9 +13,6 @@ import com.enterprise.mesh.bff.security.SpaAuthenticationEntryPoint;
 import com.enterprise.mesh.bff.security.SpaCsrfTokenRequestAttributeHandler;
 import com.enterprise.mesh.bff.session.SessionTokenService;
 import com.enterprise.mesh.security.tenant.TenantContextFilter;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
@@ -65,9 +64,8 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
+@Slf4j
 public class BffSecurityConfig {
-
-    private static final Logger log = LoggerFactory.getLogger(BffSecurityConfig.class);
 
     /**
      * Where the SPA is sent to sign in. Lives under {@code /bff} so that the

@@ -1,4 +1,6 @@
 package com.enterprise.mesh.bff.session;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -8,9 +10,6 @@ import java.util.concurrent.locks.ReentrantLock;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
@@ -43,9 +42,9 @@ import com.enterprise.mesh.observability.BusinessMetrics;
  * the framework moves.
  */
 @Service
+@Slf4j
+@RequiredArgsConstructor
 public class SessionTokenService {
-
-    private static final Logger log = LoggerFactory.getLogger(SessionTokenService.class);
 
     private static final String METRIC_DOMAIN = "bff_session";
 
@@ -78,19 +77,6 @@ public class SessionTokenService {
     private final BffProperties properties;
     private final BusinessMetrics metrics;
     private final Clock clock;
-
-    public SessionTokenService(OAuth2AuthorizedClientRepository authorizedClientRepository,
-                               OAuth2AuthorizedClientProvider refreshTokenProvider,
-                               BffProperties properties,
-                               BusinessMetrics metrics,
-                               Clock clock) {
-        this.authorizedClientRepository = authorizedClientRepository;
-        this.refreshTokenProvider = refreshTokenProvider;
-        this.properties = properties;
-        this.metrics = metrics;
-        this.clock = clock;
-    }
-
     /**
      * Builds the refresh provider.
      *

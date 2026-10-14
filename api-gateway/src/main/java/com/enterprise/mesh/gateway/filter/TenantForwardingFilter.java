@@ -1,9 +1,8 @@
 package com.enterprise.mesh.gateway.filter;
 
-import java.util.List;
+import lombok.extern.slf4j.Slf4j;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.util.List;
 
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -29,9 +28,9 @@ import reactor.core.publisher.Mono;
  */
 @Component
 @Order(Ordered.LOWEST_PRECEDENCE - 100)
+@Slf4j
 public class TenantForwardingFilter implements WebFilter {
 
-    private static final Logger log = LoggerFactory.getLogger(TenantForwardingFilter.class);
     public static final String TENANT_HEADER = "X-Tenant-ID";
 
     @Override

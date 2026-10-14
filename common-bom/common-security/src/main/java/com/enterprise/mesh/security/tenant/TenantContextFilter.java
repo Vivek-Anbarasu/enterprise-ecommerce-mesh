@@ -1,4 +1,6 @@
 package com.enterprise.mesh.security.tenant;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
 import java.util.List;
@@ -11,8 +13,6 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
 import org.springframework.security.core.Authentication;
@@ -30,21 +30,15 @@ import com.enterprise.mesh.security.MeshSecurityProperties;
  * Rejects the request when a tenant is required but none can be resolved, and
  * when the resolved tenant is not on the allow-list.
  */
+@Slf4j
+@RequiredArgsConstructor
 public class TenantContextFilter extends OncePerRequestFilter {
-
-    private static final Logger log = LoggerFactory.getLogger(TenantContextFilter.class);
 
     /** MDC key mirrored into structured logs for log-based alerting. */
     public static final String MDC_TENANT = "tenant_id";
 
     private final MeshSecurityProperties.Tenant properties;
     private final ObjectMapper objectMapper;
-
-    public TenantContextFilter(MeshSecurityProperties.Tenant properties, ObjectMapper objectMapper) {
-        this.properties = properties;
-        this.objectMapper = objectMapper;
-    }
-
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {

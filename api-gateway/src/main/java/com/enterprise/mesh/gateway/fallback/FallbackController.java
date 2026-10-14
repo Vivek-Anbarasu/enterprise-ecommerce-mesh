@@ -1,9 +1,8 @@
 package com.enterprise.mesh.gateway.fallback;
 
-import java.time.Instant;
+import lombok.extern.slf4j.Slf4j;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.time.Instant;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -33,9 +32,8 @@ import reactor.core.publisher.Mono;
  */
 @RestController
 @RequestMapping("/fallback")
+@Slf4j
 public class FallbackController {
-
-    private static final Logger log = LoggerFactory.getLogger(FallbackController.class);
 
     @RequestMapping(path = "/catalog", produces = MediaType.APPLICATION_PROBLEM_JSON_VALUE)
     public Mono<ProblemDetail> catalog(ServerWebExchange exchange) {

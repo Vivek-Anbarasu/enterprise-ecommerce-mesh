@@ -1,10 +1,9 @@
 package com.enterprise.mesh.catalog.service;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.time.Duration;
 import java.util.List;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -25,19 +24,14 @@ import org.springframework.cache.annotation.Cacheable;
  * price is a customer-trust and compliance problem, not just an annoyance.
  */
 @Service
+@Slf4j
+@RequiredArgsConstructor
 public class ProductCatalogService {
-
-    private static final Logger log = LoggerFactory.getLogger(ProductCatalogService.class);
 
     /** Short TTL: enough to absorb browse bursts, short enough to limit staleness. */
     public static final Duration PRODUCT_CACHE_TTL = Duration.ofMinutes(5);
 
     private final ProductRepository productRepository;
-
-    public ProductCatalogService(ProductRepository productRepository) {
-        this.productRepository = productRepository;
-    }
-
     @Cacheable(cacheNames = "product", key = "#tenantId + ':' + #sku")
     @Transactional(readOnly = true)
     public Product findBySku(String sku, String tenantId) {

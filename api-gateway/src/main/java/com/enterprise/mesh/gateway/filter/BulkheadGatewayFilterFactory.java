@@ -1,12 +1,12 @@
 package com.enterprise.mesh.gateway.filter;
 
+import lombok.extern.slf4j.Slf4j;
+
 import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
 
 import io.github.resilience4j.bulkhead.Bulkhead;
@@ -71,6 +71,7 @@ import static org.springframework.cloud.gateway.support.ServerWebExchangeUtils.r
  * @see com.enterprise.mesh.gateway.fallback.FallbackController
  */
 @Component
+@Slf4j
 public class BulkheadGatewayFilterFactory extends AbstractGatewayFilterFactory<BulkheadGatewayFilterFactory.Config> {
 
     /** Name used for this filter in {@code application.yml}. */
@@ -97,8 +98,6 @@ public class BulkheadGatewayFilterFactory extends AbstractGatewayFilterFactory<B
      * operator that shedding has started, and it stays that rare.
      */
     private static final long REJECTION_LOG_INTERVAL = Duration.ofSeconds(10).toNanos();
-
-    private static final Logger log = LoggerFactory.getLogger(BulkheadGatewayFilterFactory.class);
 
     private final BulkheadRegistry bulkheadRegistry;
 

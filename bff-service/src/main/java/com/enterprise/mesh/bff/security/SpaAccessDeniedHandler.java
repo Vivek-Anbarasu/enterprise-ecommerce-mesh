@@ -1,4 +1,6 @@
 package com.enterprise.mesh.bff.security;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
 import java.net.URI;
@@ -8,9 +10,6 @@ import tools.jackson.databind.ObjectMapper;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -31,23 +30,15 @@ import org.springframework.util.StringUtils;
  * client recover; every other 403 stays generic, because telling a caller precisely
  * which authorisation rule it hit is how an attacker maps the policy.
  */
+@Slf4j
+@RequiredArgsConstructor
 public class SpaAccessDeniedHandler implements AccessDeniedHandler {
 
-    private static final Logger log = LoggerFactory.getLogger(SpaAccessDeniedHandler.class);
     private static final URI BASE = URI.create("https://errors.enterprise-ecommerce.com/bff/");
 
     private final ObjectMapper objectMapper;
     private final String csrfCookieName;
     private final String csrfHeaderName;
-
-    public SpaAccessDeniedHandler(ObjectMapper objectMapper,
-                                  String csrfCookieName,
-                                  String csrfHeaderName) {
-        this.objectMapper = objectMapper;
-        this.csrfCookieName = csrfCookieName;
-        this.csrfHeaderName = csrfHeaderName;
-    }
-
     @Override
     public void handle(HttpServletRequest request, HttpServletResponse response,
                        AccessDeniedException accessDeniedException) throws IOException {

@@ -1,4 +1,6 @@
 package com.enterprise.mesh.bff.service;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,9 +32,6 @@ import com.enterprise.mesh.bff.session.SessionTokenService;
 import com.enterprise.mesh.bff.session.SessionTokens;
 import com.enterprise.mesh.observability.BusinessMetrics;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 
@@ -50,9 +49,9 @@ import org.springframework.stereotype.Service;
  * which is backwards - a partial answer is worth more the sooner it arrives.
  */
 @Service
+@Slf4j
+@RequiredArgsConstructor
 public class BffAggregationService {
-
-    private static final Logger log = LoggerFactory.getLogger(BffAggregationService.class);
 
     private static final String METRIC_DOMAIN = "bff_aggregation";
 
@@ -62,21 +61,6 @@ public class BffAggregationService {
     private final BffProperties properties;
     private final BusinessMetrics metrics;
     private final Executor aggregationExecutor;
-
-    public BffAggregationService(MeshApiClient meshApiClient,
-                                 BffViewMapper mapper,
-                                 SessionTokenService sessionTokenService,
-                                 BffProperties properties,
-                                 BusinessMetrics metrics,
-                                 Executor aggregationExecutor) {
-        this.meshApiClient = meshApiClient;
-        this.mapper = mapper;
-        this.sessionTokenService = sessionTokenService;
-        this.properties = properties;
-        this.metrics = metrics;
-        this.aggregationExecutor = aggregationExecutor;
-    }
-
     /**
      * Anonymous home page.
      *

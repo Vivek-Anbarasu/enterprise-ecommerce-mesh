@@ -1,12 +1,11 @@
 package com.enterprise.mesh.messaging.publisher;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.concurrent.CompletableFuture;
 
 import com.enterprise.mesh.messaging.event.CloudEventHeaders;
 import com.enterprise.mesh.messaging.event.EventMetadata;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.messaging.Message;
@@ -19,16 +18,11 @@ import org.springframework.messaging.Message;
  * consumer has processed it. Consumers must therefore be idempotent, keyed on
  * {@link EventMetadata#eventId()}.
  */
+@Slf4j
+@RequiredArgsConstructor
 public class KafkaEventPublisher implements EventPublisher {
 
-    private static final Logger log = LoggerFactory.getLogger(KafkaEventPublisher.class);
-
     private final KafkaTemplate<String, Object> kafkaTemplate;
-
-    public KafkaEventPublisher(KafkaTemplate<String, Object> kafkaTemplate) {
-        this.kafkaTemplate = kafkaTemplate;
-    }
-
     @Override
     public CompletableFuture<Void> publish(String topic, Object payload, EventMetadata metadata) {
         Message<Object> message = CloudEventHeaders.toMessage(payload, metadata);

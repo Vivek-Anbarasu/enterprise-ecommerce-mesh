@@ -1,7 +1,6 @@
 package com.enterprise.mesh.inventoryservice.service;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -21,20 +20,15 @@ import com.enterprise.mesh.inventoryservice.repository.InventoryItemRepository;
  * context is already poisoned after a locking failure.
  */
 @Service
+@Slf4j
+@RequiredArgsConstructor
 public class StockMutationService {
-
-    private static final Logger log = LoggerFactory.getLogger(StockMutationService.class);
 
     public enum Action {
         RESERVE, RELEASE, CONFIRM, RECEIVE
     }
 
     private final InventoryItemRepository itemRepository;
-
-    public StockMutationService(InventoryItemRepository itemRepository) {
-        this.itemRepository = itemRepository;
-    }
-
     /**
      * Loads, mutates and flushes one stock row in a single transaction.
      *
