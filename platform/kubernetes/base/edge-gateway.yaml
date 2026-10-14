@@ -143,10 +143,15 @@ spec:
 # CIDR must match the ipBlocks in the `gateway-edge-only` AuthorizationPolicy in
 # platform/kubernetes/istio/policies.yaml. If they disagree, one of the two
 # silently wins and the edge either 503s or is open.
+#
+# Named `<service>-edge-only` to match what the Helm chart generates from the
+# `edgeExposed` flag on each service. Note the AuthorizationPolicy above keeps
+# the older `gateway-edge-only` name: the two are different resource kinds and
+# only the NetworkPolicy was renamed.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: gateway-edge-only
+  name: api-gateway-edge-only
   namespace: ecommerce
 spec:
   podSelector:

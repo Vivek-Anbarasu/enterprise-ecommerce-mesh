@@ -16,6 +16,12 @@ spring:
     gateway:
       server:
         webflux:
+          # Everything from here down must live under `server.webflux`. Spring Cloud
+          # Gateway 5 binds GatewayProperties to spring.cloud.gateway.server.webflux;
+          # the old spring.cloud.gateway.routes key is no longer read by anything and
+          # is not an error, it is simply dropped - so a config left at the old prefix
+          # boots cleanly with zero routes and 404s everything.
+          #
           # X-Forwarded-* are set by the mesh ingress; never trust client values.
           forwarded:
             enabled: true
@@ -27,166 +33,192 @@ spring:
           preserve-host: false
           # Do not expose internal service hostnames in error payloads.
           include-exception-details: never
-      x-forwarded:
-        enabled: true
-      # Retry only idempotent requests to transiently failing backends.
-      retry:
-        enabled: true
-      default-filters:
-        # Hop-by-hop headers are stripped so internal topology is not leaked.
-        #
-        # Cookie is on that list deliberately, and the bff-service is why it
-        # matters. The BFF terminates a browser session cookie and exchanges it for
-        # a bearer token; if that cookie were forwarded, a server-side session
-        # identifier - a bearer credential in everything but name - would travel to
-        # every downstream service, where a log line, an error page or an SSRF
-        # could capture it. Stripping it here means the credential never leaves the
-        # edge that issued it. Everything downstream is authenticated by the token
-        # alone.
-        - RemoveRequestHeader=Cookie
-        - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_UNIQUE
-      # Downstream targets are plain http:// against Kubernetes Service DNS names.
-      # There is no service registry: the mesh runs on AKS with CoreDNS for
-      # name resolution and Istio for mTLS, retries and L7 routing, so the
-      # gateway holds no registry in memory and sends no discovery heartbeats.
-      # Client-side load balancing is therefore the cluster's job (kube-proxy or
-      # Envoy), not the gateway's. Each *SVC_PORT matches the `port` of that
-      # service's Kubernetes Service; MESH_*_URI still overrides the whole URI.
-      #
-      # Every route below is reachable by two kinds of caller. Direct clients -
-      # mobile, partner integrations, curl - present a bearer token and are
-      # charged against the limits below per tenant. The bff-service is also a
-      # caller of these same routes, having converted a browser session cookie
-      # into a bearer token first, so it is charged here too rather than being
-      # exempt. That is the right accounting: an aggregation costing four gateway
-      # calls is four calls' worth of load, and exempting the service that makes
-      # them would simply hide it. What the BFF buys is that the shopper waits for
-      # one round trip instead of four.
-      routes:
-        # ---------------- Read-heavy, anonymously browsable ----------------
-        - id: product-catalog
-          uri: ${MESH_CATALOG_URI:http://product-catalog-service:${CATALOG_SVC_PORT:8085}}
-          predicates:
-            - Path=/api/products/**,/api/categories/**
-          filters:
-            - name: CircuitBreaker
-              args:
-                name: catalogCircuitBreaker
-                fallbackUri: forward:/fallback/catalog
+          x-forwarded:
+            enabled: true
+          # NOTE: there is no global retry switch in Spring Cloud Gateway. The
+          # `spring.cloud.gateway.retry.enabled` key this file used to carry binds to
+          # nothing, so the gateway has never actually retried anything. Retries are
+          # declared per route with the Retry filter, which is the right place for
+          # them anyway - only idempotent requests should be retried, and that is a
+          # per-route decision. Left as a known gap rather than a setting that looks
+          # like it works.
+          default-filters:
+            # Hop-by-hop headers are stripped so internal topology is not leaked.
+            #
+            # Cookie is on that list deliberately, and the bff-service is why it
+            # matters. The BFF terminates a browser session cookie and exchanges it for
+            # a bearer token; if that cookie were forwarded, a server-side session
+            # identifier - a bearer credential in everything but name - would travel to
+            # every downstream service, where a log line, an error page or an SSRF
+            # could capture it. Stripping it here means the credential never leaves the
+            # edge that issued it. Everything downstream is authenticated by the token
+            # alone.
+            - RemoveRequestHeader=Cookie
+            - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_UNIQUE
+          # Downstream targets are plain http:// against Kubernetes Service DNS names.
+          # There is no service registry: the mesh runs on AKS with CoreDNS for
+          # name resolution and Istio for mTLS, retries and L7 routing, so the
+          # gateway holds no registry in memory and sends no discovery heartbeats.
+          # Client-side load balancing is therefore the cluster's job (kube-proxy or
+          # Envoy), not the gateway's. Each *SVC_PORT matches the `port` of that
+          # service's Kubernetes Service; MESH_*_URI still overrides the whole URI.
+          #
+          # Every route below is reachable by two kinds of caller. Direct clients -
+          # mobile, partner integrations, curl - present a bearer token and are
+          # charged against the limits below per tenant. The bff-service is also a
+          # caller of these same routes, having converted a browser session cookie
+          # into a bearer token first, so it is charged here too rather than being
+          # exempt. That is the right accounting: an aggregation costing four gateway
+          # calls is four calls' worth of load, and exempting the service that makes
+          # them would simply hide it. What the BFF buys is that the shopper waits for
+          # one round trip instead of four.
+          routes:
+            # ---------------- Read-heavy, anonymously browsable ----------------
+            - id: product-catalog
+              uri: ${MESH_CATALOG_URI:http://product-catalog-service:${CATALOG_SVC_PORT:8085}}
+              predicates:
+                - Path=/api/products/**,/api/categories/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: catalogCircuitBreaker
+                    fallbackUri: forward:/fallback/catalog
 
-        - id: review-rating
-          uri: ${MESH_REVIEW_URI:http://review-rating-service:${REVIEW_SVC_PORT:8088}}
-          predicates:
-            - Path=/api/reviews/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: '#{@tenantKeyResolver}'
-                redis-rate-limiter.replenishRate: ${RL_READ_REPLENISH:200}
-                redis-rate-limiter.burstCapacity: ${RL_READ_BURST:400}
-                redis-rate-limiter.requestedTokens: 1
+            - id: review-rating
+              uri: ${MESH_REVIEW_URI:http://review-rating-service:${REVIEW_SVC_PORT:8088}}
+              predicates:
+                - Path=/api/reviews/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: '#{@tenantKeyResolver}'
+                    redis-rate-limiter.replenishRate: ${RL_READ_REPLENISH:200}
+                    redis-rate-limiter.burstCapacity: ${RL_READ_BURST:400}
+                    redis-rate-limiter.requestedTokens: 1
 
-        # ---------------- Authenticated session traffic ----------------
-        - id: customer
-          uri: ${MESH_CUSTOMER_URI:http://customer-service:${CUSTOMER_SVC_PORT:8087}}
-          predicates:
-            - Path=/api/customers/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: '#{@tenantKeyResolver}'
-                redis-rate-limiter.replenishRate: ${RL_WRITE_REPLENISH:50}
-                redis-rate-limiter.burstCapacity: ${RL_WRITE_BURST:100}
+            # ---------------- Authenticated session traffic ----------------
+            - id: customer
+              uri: ${MESH_CUSTOMER_URI:http://customer-service:${CUSTOMER_SVC_PORT:8087}}
+              predicates:
+                - Path=/api/customers/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: '#{@tenantKeyResolver}'
+                    redis-rate-limiter.replenishRate: ${RL_WRITE_REPLENISH:50}
+                    redis-rate-limiter.burstCapacity: ${RL_WRITE_BURST:100}
 
-        - id: shopping-cart
-          uri: ${MESH_CART_URI:http://shopping-cart-service:${CART_SVC_PORT:8086}}
-          predicates:
-            - Path=/api/cart/**,/api/carts/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: '#{@tenantKeyResolver}'
-                redis-rate-limiter.replenishRate: ${RL_CART_REPLENISH:100}
-                redis-rate-limiter.burstCapacity: ${RL_CART_BURST:200}
+            - id: shopping-cart
+              uri: ${MESH_CART_URI:http://shopping-cart-service:${CART_SVC_PORT:8086}}
+              predicates:
+                - Path=/api/cart/**,/api/carts/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: '#{@tenantKeyResolver}'
+                    redis-rate-limiter.replenishRate: ${RL_CART_REPLENISH:100}
+                    redis-rate-limiter.burstCapacity: ${RL_CART_BURST:200}
 
-        # ---------------- Checkout path: tight limits, must not be throttled
-        # into abandonment, but must not melt inventory either ----------
-        - id: order
-          uri: ${MESH_ORDER_URI:http://order-service:${ORDER_SVC_PORT:8082}}
-          predicates:
-            - Path=/api/orders/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: '#{@tenantKeyResolver}'
-                redis-rate-limiter.replenishRate: ${RL_ORDER_REPLENISH:20}
-                redis-rate-limiter.burstCapacity: ${RL_ORDER_BURST:40}
-            - name: CircuitBreaker
-              args:
-                name: orderCircuitBreaker
-                fallbackUri: forward:/fallback/orders
+            # ---------------- Checkout path: tight limits, must not be throttled
+            # into abandonment, but must not melt inventory either ----------
+            - id: order
+              uri: ${MESH_ORDER_URI:http://order-service:${ORDER_SVC_PORT:8082}}
+              predicates:
+                - Path=/api/orders/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: '#{@tenantKeyResolver}'
+                    redis-rate-limiter.replenishRate: ${RL_ORDER_REPLENISH:20}
+                    redis-rate-limiter.burstCapacity: ${RL_ORDER_BURST:40}
+                - name: CircuitBreaker
+                  args:
+                    name: orderCircuitBreaker
+                    fallbackUri: forward:/fallback/orders
 
-        - id: payment
-          uri: ${MESH_PAYMENT_URI:http://payment-service:${PAYMENT_SVC_PORT:8084}}
-          predicates:
-            - Path=/api/payments/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: '#{@tenantKeyResolver}'
-                redis-rate-limiter.replenishRate: ${RL_PAYMENT_REPLENISH:20}
-                redis-rate-limiter.burstCapacity: ${RL_PAYMENT_BURST:40}
-            - name: CircuitBreaker
-              args:
-                name: paymentCircuitBreaker
-                fallbackUri: forward:/fallback/payments
+            - id: payment
+              uri: ${MESH_PAYMENT_URI:http://payment-service:${PAYMENT_SVC_PORT:8084}}
+              predicates:
+                - Path=/api/payments/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: '#{@tenantKeyResolver}'
+                    redis-rate-limiter.replenishRate: ${RL_PAYMENT_REPLENISH:20}
+                    redis-rate-limiter.burstCapacity: ${RL_PAYMENT_BURST:40}
+                - name: CircuitBreaker
+                  args:
+                    name: paymentCircuitBreaker
+                    fallbackUri: forward:/fallback/payments
+                # The payment service is the one caller in the mesh that leaves the
+                # cluster, to a card network with a bad habit of going slow globally
+                # rather than partially. Without a compartment here, a card-network
+                # latency event pins payment connections for the full 8s breaker
+                # timeout each, and shoppers lose the ability to add to their basket -
+                # a route with no slow dependency, sharing the same pool.
+                - name: Bulkhead
+                  args:
+                    name: paymentBulkhead
+                    fallbackUri: forward:/fallback/payments
 
-        - id: inventory
-          uri: ${MESH_INVENTORY_URI:http://inventory-service:${INVENTORY_SVC_PORT:8083}}
-          predicates:
-            - Path=/api/inventory/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: '#{@tenantKeyResolver}'
-                redis-rate-limiter.replenishRate: ${RL_INVENTORY_REPLENISH:100}
-                redis-rate-limiter.burstCapacity: ${RL_INVENTORY_BURST:200}
+            - id: inventory
+              uri: ${MESH_INVENTORY_URI:http://inventory-service:${INVENTORY_SVC_PORT:8083}}
+              predicates:
+                - Path=/api/inventory/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: '#{@tenantKeyResolver}'
+                    redis-rate-limiter.replenishRate: ${RL_INVENTORY_REPLENISH:100}
+                    redis-rate-limiter.burstCapacity: ${RL_INVENTORY_BURST:200}
 
-        # ---------------- Internal, mesh-only, never exposed publicly ------
-        # notification-service is a Kafka worker with no business port
-        # (server.port=-1); the only HTTP it serves is the actuator on the
-        # management port, so this route reaches probes and metrics only.
-        - id: notifications-internal
-          uri: ${MESH_NOTIFICATION_URI:http://notification-service:${NOTIFICATION_SVC_PORT:8081}}
-          predicates:
-            - Path=/internal/notifications/**
-          metadata:
-            # Istio AuthorizationPolicy restricts this to the mesh ingress.
-            exposure: internal
+            # ---------------- Internal, mesh-only, never exposed publicly ------
+            # notification-service is a Kafka worker with no business port
+            # (server.port=-1); the only HTTP it serves is the actuator on the
+            # management port, so this route reaches probes and metrics only.
+            - id: notifications-internal
+              uri: ${MESH_NOTIFICATION_URI:http://notification-service:${NOTIFICATION_SVC_PORT:8081}}
+              predicates:
+                - Path=/internal/notifications/**
+              metadata:
+                # Istio AuthorizationPolicy restricts this to the mesh ingress.
+                exposure: internal
 
-        - id: shipping-internal
-          uri: ${MESH_SHIPPING_URI:http://shipping-delivery-service:${SHIPPING_SVC_PORT:8089}}
-          predicates:
-            - Path=/internal/shipping/**
-          metadata:
-            exposure: internal
+            - id: shipping-internal
+              uri: ${MESH_SHIPPING_URI:http://shipping-delivery-service:${SHIPPING_SVC_PORT:8089}}
+              predicates:
+                - Path=/internal/shipping/**
+              metadata:
+                exposure: internal
 
-        - id: ai-orchestrator
-          uri: ${MESH_AI_URI:http://ai-orchestrator-service:${AI_SVC_PORT:8090}}
-          predicates:
-            - Path=/api/ai/**
-          filters:
-            - name: CircuitBreaker
-              args:
-                name: aiCircuitBreaker
-                fallbackUri: forward:/fallback/ai
+            - id: ai-orchestrator
+              uri: ${MESH_AI_URI:http://ai-orchestrator-service:${AI_SVC_PORT:8090}}
+              predicates:
+                - Path=/api/ai/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: aiCircuitBreaker
+                    fallbackUri: forward:/fallback/ai
+                # Last in the list, so it sits inside the circuit breaker: an open
+                # circuit sheds without spending a permit, and only a call that is
+                # actually going downstream is capped. Listed after the circuit
+                # breaker rather than before because the 30s aiCircuitBreaker timeout
+                # is the whole problem - ten of those may run at once, and after that
+                # the compartment is shut. Every further AI request is refused
+                # outright, which leaves the catalogue, cart and checkout routes a
+                # full gateway to serve from no matter how the orchestrator behaves.
+                - name: Bulkhead
+                  args:
+                    name: aiBulkhead
+                    fallbackUri: forward:/fallback/ai
 
-        - id: swagger-ui
-          uri: ${SWAGGER_UI_URI:http://localhost:8082}
-          predicates:
-            - Path=/internal/docs/**
-          metadata:
-            exposure: internal
+            - id: swagger-ui
+              uri: ${SWAGGER_UI_URI:http://localhost:8082}
+              predicates:
+                - Path=/internal/docs/**
+              metadata:
+                exposure: internal
 
   data:
     redis:
@@ -238,6 +270,51 @@ resilience4j:
       aiCircuitBreaker:
         timeoutDuration: 30s
 
+  # Semaphore bulkheads, one compartment per route, capping how many requests
+  # may be in flight against a given backend at the same time.
+  #
+  # These are a different control from the circuit breakers above and neither
+  # replaces the other. The breaker bounds how long the gateway keeps retrying a
+  # dependency that is failing; the bulkhead bounds how many callers may be
+  # inside it while it is merely slow. Rate limiting does not cover this gap:
+  # it caps arrivals per tenant per second, not how many of those arrivals may
+  # be simultaneously holding a pooled connection waiting on one slow backend.
+  #
+  # Sizing is a capacity trade-off, so it is spelled out per instance below.
+  # Two numbers to watch when retuning: maxConcurrentCalls, and the paired
+  # breaker timeout, since together they set the worst-case throughput of the
+  # route as maxConcurrentCalls / timeout.
+  bulkhead:
+    configs:
+      default:
+        # Reject, never queue. A queued request is still an open client socket
+        # and still an open pooled connection, so queueing would recreate the
+        # congestion it is meant to shed. Zero also matters for correctness
+        # beyond throughput: BulkheadGatewayFilterFactory rejects at startup if
+        # this is non-zero, because tryAcquirePermission() would then block the
+        # Netty event-loop thread it runs on.
+        maxWaitDuration: 0
+    instances:
+      aiBulkhead:
+        baseConfig: default
+        # 10 concurrent 30s calls is 20 AI requests/minute per gateway replica,
+        # deliberately far below what the orchestrator could serve. Recommendations
+        # are not what anyone came to buy, and the resource this protects is the
+        # one catalogue and checkout both need. Raise it only together with
+        # aiCircuitBreaker.timeoutDuration, or the compartment will just hand the
+        # same pool exhaustion a longer fuse.
+        maxConcurrentCalls: ${BULKHEAD_AI_MAX:10}
+      paymentBulkhead:
+        baseConfig: default
+        # Sized above the 20/s payment rate limit because the bulkhead is global
+        # across tenants while the rate limit is per tenant. It also bounds the
+        # degraded case, which is the point: at the 8s breaker timeout this holds
+        # checkout to roughly 3 in-flight payments per second when the card
+        # network is slow, instead of letting that slowness spread into the pool
+        # the cart and catalogue routes depend on. At a healthy 500ms it
+        # comfortably clears the configured rate.
+        maxConcurrentCalls: ${BULKHEAD_PAYMENT_MAX:25}
+
 management:
   endpoints:
     web:
@@ -250,7 +327,13 @@ management:
       show-details: when-authorized
       group:
         readiness:
-          include: readinessState,db,discoveryComposite
+          # Only contributors this service actually has. The gateway is stateless:
+          # there is no DataSource on its classpath, so a 'db' entry here does not
+          # merely report an unhealthy database - Spring Boot validates group
+          # membership at startup and aborts the context with
+          # "Health contributor 'db' ... does not exist", so the gateway would
+          # never boot at all, and the Helm chart probes this exact group.
+          include: readinessState,redis
         liveness:
           include: livenessState
   health:

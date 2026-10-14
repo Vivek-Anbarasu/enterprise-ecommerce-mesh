@@ -22,6 +22,28 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-circuitbreaker-resilience4j</artifactId>
         </dependency>
+        <!-- The semaphore bulkhead (io.github.resilience4j.bulkhead.Bulkhead) is NOT a
+             transitive dependency of the circuit breaker starter above: that starter ships
+             only resilience4j-circuitbreaker and resilience4j-timelimiter. Without this
+             artifact there is no Bulkhead type on the classpath, so neither
+             resilience4j-spring-boot3's BulkheadAutoConfiguration nor the BulkheadRegistry
+             bean that backs `resilience4j.bulkhead.instances.*` in application.yml can
+             activate, and BulkheadGatewayFilterFactory cannot start. -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-bulkhead</artifactId>
+        </dependency>
+        <!-- Likewise missing from the starter, and for a worse reason: without it
+             ReactiveResilience4JAutoConfiguration is @ConditionalOnClass-gated on
+             io.github.resilience4j.reactor.circuitbreaker.operator.CircuitBreakerOperator,
+             so it backs off, there is no ReactiveCircuitBreakerFactory, and therefore
+             no "CircuitBreaker" GatewayFilterFactory at all. Every route in this
+             gateway names that filter, so the missing jar does not degrade the
+             gateway - it stops it building. -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-reactor</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis-reactive</artifactId>

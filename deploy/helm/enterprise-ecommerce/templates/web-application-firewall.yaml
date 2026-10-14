@@ -1,0 +1,65 @@
+{{/*
+WAF enforcement scope.
+
+Application Gateway for Containers splits WAF into two halves, and this template is
+only one of them:
+
+  * deploy/bicep/waf-policy.bicep        Azure: creates the WAF policy and the
+                                        SecurityPolicy child resource that makes
+                                        it referenceable by the ALB Controller.
+  * this template                        Cluster: says WHICH policy applies and
+                                        at WHAT scope.
+
+Creating only the Azure half is the failure mode worth knowing about: AGC shows the
+policy as associated in the portal and in Defender for Cloud, inspects no traffic,
+and emits no firewall logs. Nothing errors. See the "Verify" section of
+docs/AKS-DEPLOYMENT.md.
+
+The rate limit thresholds deliberately live in the Bicep and not here. This resource
+carries only a reference and a scope, so there is exactly one place the numbers
+live and no way for the chart's copy to drift from the policy's.
+*/}}
+{{- if .Values.webApplicationFirewall }}
+{{- $waf := .Values.webApplicationFirewall }}
+{{- if $waf.enabled }}
+{{- if not $waf.policyResourceId }}
+{{- fail "webApplicationFirewall.enabled requires webApplicationFirewall.policyResourceId: the ARM ID of the policy created by deploy/bicep/waf-policy.bicep. The chart cannot create it, because SecurityPolicy is an ARM child resource of the Application Gateway, not a Kubernetes object." }}
+{{- end }}
+{{- if not .Values.apiGateway.enabled }}
+{{- fail "webApplicationFirewall.enabled requires apiGateway.enabled: without the north-south edge there is no Gateway for the policy to attach to." }}
+{{- end }}
+{{- $gatewayName := $waf.target.name | default .Values.apiGateway.name }}
+{{- if not $gatewayName }}
+{{- fail "webApplicationFirewall.target.name is empty and apiGateway.name is unset, so there is no Gateway to attach the policy to." }}
+{{- end }}
+apiVersion: alb.networking.azure.io/v1
+kind: WebApplicationFirewallPolicy
+metadata:
+  name: {{ $waf.name | default (printf "%s-waf" .Release.Name) }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ecommerce.labels" (dict "root" . "serviceName" "web-application-firewall") | nindent 4 }}
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    # Gateway covers every listener and route on it, which is what is wanted
+    # here: the rate limit rules are the edge's only IP-level defence, and scoping
+    # to one listener would leave any future listener unprotected. Narrow to
+    # `HTTPRoute` if a single path ever needs exempting.
+    kind: {{ $waf.target.kind }}
+    name: {{ $gatewayName }}
+    namespace: {{ .Release.Namespace }}
+    {{- with $waf.target.sectionNames }}
+    # Empty by default. Naming a listener scopes the policy to that listener
+    # only; empty covers the whole Gateway.
+    sectionNames:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+  webApplicationFirewall:
+    # Must reference a policy in the SAME subscription and region as the
+    # Application Gateway for Containers resource. Cross-region and
+    # cross-subscription associations are not supported, and the failure is a
+    # policy that silently never attaches.
+    id: {{ $waf.policyResourceId | quote }}
+{{- end }}
+{{- end }}
