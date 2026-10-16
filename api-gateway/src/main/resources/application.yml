@@ -35,6 +35,28 @@ spring:
           include-exception-details: never
           x-forwarded:
             enabled: true
+          # Regex matching proxies whose address may appear in X-Forwarded-For and
+          # be ignored when resolving the client: Application Gateway's node
+          # addresses, in this deployment.
+          #
+          # Two things change once this is set.
+          #
+          # 1. RateLimitKeyResolverConfig starts skipping these hops and returns
+          #    the first untrusted one from the right. Unset, it still returns the
+          #    rightmost hop - which is the one AGC appended from the address it
+          #    really observed - so the result is already safe. Setting it makes
+          #    that correct through more than one trusted hop as well.
+          #
+          # 2. Spring Cloud Gateway registers XForwardedHeadersFilter instead of
+          #    RemoveXForwardedHeadersFilter, so X-Forwarded-* survives onto the
+          #    outbound request and downstream services can still see the real
+          #    client. Without this property those headers are stripped in hop.
+          #
+          # A regex over address strings, not CIDR - Spring matches it with
+          # Pattern.matches against each hop. Anchor it: an unanchored pattern
+          # matches hostnames and malformed values too, and a hop that is not an
+          # address at all must not be silently trusted.
+          trusted-proxies: ${EDGE_TRUSTED_PROXIES:^10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$}
           # NOTE: there is no global retry switch in Spring Cloud Gateway. The
           # `spring.cloud.gateway.retry.enabled` key this file used to carry binds to
           # nothing, so the gateway has never actually retried anything. Retries are

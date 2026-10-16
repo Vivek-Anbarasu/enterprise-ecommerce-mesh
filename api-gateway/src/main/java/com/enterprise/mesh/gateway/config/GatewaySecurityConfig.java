@@ -8,6 +8,7 @@ import java.util.Collection;
 import java.util.List;
 
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
@@ -52,7 +53,7 @@ public class GatewaySecurityConfig {
     public SecurityWebFilterChain gatewaySecurityFilterChain(
             ServerHttpSecurity http,
             ObjectProvider<JwtDecoder> jwtDecoderProvider,
-            @org.springframework.beans.factory.annotation.Qualifier("gatewayJwtAuthenticationConverter")
+            @Qualifier("gatewayJwtAuthenticationConverter")
             Converter<Jwt, Mono<AbstractAuthenticationToken>> jwtAuthenticationConverter) {
 
         http
@@ -144,7 +145,7 @@ public class GatewaySecurityConfig {
         // narrow this to explicit origins first; a wildcard pattern alongside
         // allowCredentials is only as safe as the credential it is paired with,
         // and this one is a bearer token.
-        configuration.setAllowedOriginPatterns(List.of("*"));
+        configuration.setAllowedOriginPatterns(List.of("http://localhost:3000","https://yourcompany.com"));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of(
                 "Authorization", "Content-Type", "Accept", "X-Request-ID", "X-Tenant-ID", "Idempotency-Key"));

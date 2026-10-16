@@ -112,6 +112,12 @@ service-specific extras in .service.extraEnv.
   variable. Setting SPRING_PROFILES_ACTIVE again in extraEnv would emit a second
   entry with the same name, and which of the two the kubelet honours is not
   something to leave to chance.
+
+  `entra` is what makes common-security build its JwtDecoder, so a service listed
+  in that profile validates the token the gateway forwarded instead of rejecting
+  it. MeshJwtValidationSafetyCheck fails the pod when `production` is active with
+  no decoder, so a service that drops `entra` crash-loops naming the missing
+  property rather than quietly serving 401s to every authenticated request.
 */}}
 - name: SPRING_PROFILES_ACTIVE
   value: {{ join "," (default (list "production") .service.profiles) | quote }}

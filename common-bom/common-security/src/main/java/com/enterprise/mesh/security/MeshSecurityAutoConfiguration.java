@@ -16,7 +16,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.boot.security.oauth2.server.resource.autoconfigure.OAuth2ResourceServerAutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Profile;
 import org.springframework.core.convert.converter.Converter;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -26,6 +28,8 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtValidators;
+import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
@@ -86,6 +90,97 @@ public class MeshSecurityAutoConfiguration {
         });
         converter.setPrincipalClaimName("sub");
         return converter;
+    }
+
+    /**
+     * Entra ID as the issuer, for the services behind the gateway that receive a
+     * token the gateway has already accepted.
+     *
+     * <p>The gateway and the BFF declare their own {@code application-entra.yml},
+     * but a downstream service has no reason to repeat the issuer block: it is
+     * the same directory, so it is the same keys and the same {@code iss} value.
+     * Deriving it from {@code ENTRA_TENANT_ID} here means there is exactly one
+     * place to get it wrong, and a service picks it up by activating {@code entra}
+     * rather than by adding a file that could drift.
+     *
+     * <p>Deliberately {@code @ConditionalOnMissingBean}, and deliberately ordered
+     * after Boot's resource server auto-configuration. An operator who wants a
+     * different key source - a PEM mounted from Key Vault, say - sets
+     * {@code spring.security.oauth2.resourceserver.jwt.public-key-location} and
+     * Boot's own decoder wins, exactly as it would without this class. This is a
+     * default, not an override.
+     */
+    @Bean
+    @Profile("entra")
+    @ConditionalOnMissingBean(JwtDecoder.class)
+    public JwtDecoder meshEntraJwtDecoder(Environment environment) {
+        String tenantId = requireTenantId(environment);
+
+        String issuer = "https://login.microsoftonline.com/" + tenantId + "/v2.0";
+        String jwkSetUri = "https://login.microsoftonline.com/" + tenantId + "/discovery/v2.0/keys";
+
+        log.info("Resource server configured for Entra directory {}: forwarded bearer tokens "
+                + "are validated against issuer '{}'.", tenantId, issuer);
+
+        NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(jwkSetUri).build();
+
+        // Both halves are needed and they do different jobs. The JWK set supplies
+        // the signing keys; the issuer validator is what rejects a token whose
+        // `iss` is some other directory. Validating the signature alone is the
+        // dangerous shortcut, because Entra signs every tenant's tokens with a
+        // shared key set - so a perfectly valid token minted by a stranger's
+        // Azure AD directory would be accepted, and TenantContextFilter would
+        // turn its tenant_id claim into a TENANT_* authority for this mesh.
+        decoder.setJwtValidator(JwtValidators.createDefaultWithIssuer(issuer));
+        return decoder;
+    }
+
+    /**
+     * @see #requireTenantId(Environment)
+     */
+    private String requireTenantId(Environment environment) {
+        String tenantId = environment.getProperty("ENTRA_TENANT_ID");
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalStateException(
+                    "The 'entra' profile is active but ENTRA_TENANT_ID is unset. The issuer URL is "
+                            + "built from it, so an empty value produces a valid-looking URL pointing "
+                            + "at the wrong directory: this service would start, pass its health checks, "
+                            + "and reject every real token as foreign. Set the directory (tenant) id, "
+                            + "e.g. with --set services.<service>.extraEnv.ENTRA_TENANT_ID=<directory-id>.");
+        }
+        if (tenantId.startsWith("REPLACE_")) {
+            throw new IllegalStateException(
+                    "ENTRA_TENANT_ID is still the placeholder value '" + tenantId + "'. Replace it "
+                            + "with the directory (tenant) id from the Entra app registration. It must "
+                            + "be the SAME tenant as the api-gateway and bff-service, because the "
+                            + "gateway pins its issuer to exactly that directory.");
+        }
+        return tenantId;
+    }
+
+    /**
+     * Refuses to start when a service that should be validating tokens has no
+     * decoder to validate them with.
+     *
+     * <p>Without a decoder the filter chain above still requires authentication,
+     * but there is no mechanism that can produce one - so every request carrying a
+     * forwarded token is rejected with 401 and the service is effectively down
+     * while every probe and metric stays green. {@link #meshSecurityFilterChain}
+     * skips wiring the resource server in that case on purpose, so that local
+     * development and tests boot without an identity provider; the cost of that
+     * choice is that the broken state is invisible, and this is the control that
+     * makes it visible.
+     *
+     * <p>Same guard as the gateway's {@code JwtValidationSafetyCheck}, for the same
+     * reason: the condition shows up in no metric and no log line, so refusing to
+     * start is the only reliable way to surface it.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public MeshJwtValidationSafetyCheck meshJwtValidationSafetyCheck(
+            Environment environment,
+            ObjectProvider<JwtDecoder> jwtDecoderProvider) {
+        return new MeshJwtValidationSafetyCheck(environment, jwtDecoderProvider);
     }
 
     @Bean
