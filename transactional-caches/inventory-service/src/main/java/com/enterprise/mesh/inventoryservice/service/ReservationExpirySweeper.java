@@ -40,6 +40,10 @@ public class ReservationExpirySweeper {
     private final InventoryReservationRepository reservationRepository;
     private final InventoryReservationLineRepository lineRepository;
     private final StockMutationService mutationService;
+    // Injected through @RequiredArgsConstructor. The root lombok.config copies
+    // @Value onto the generated constructor parameters; without that, Spring sees
+    // an unannotated int parameter and fails to start with no candidate bean.
+    @Value("${mesh.inventory.sweeper.batch-size:200}")
     private final int batchSize;
     @Scheduled(fixedDelayString = "${mesh.inventory.sweeper.interval-ms:60000}")
     @Transactional(propagation = Propagation.NOT_SUPPORTED)

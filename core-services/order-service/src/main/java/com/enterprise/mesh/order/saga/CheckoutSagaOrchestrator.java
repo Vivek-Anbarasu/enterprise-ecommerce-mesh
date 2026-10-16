@@ -28,11 +28,16 @@ import com.enterprise.mesh.order.persistence.OrderRepository;
 /**
  * Checkout saga orchestrator.
  *
- * <p>Steps: reserve stock -> authorise payment -> mark paid. Each step has a
- * compensating action (release stock, void authorisation) so a failure at any
- * point can be unwound. This is the classic saga pattern; the alternative - a
- * single distributed transaction across three databases - is not available here
- * and would be worse even if it were.
+ * <p>Steps: reserve stock -> authorise payment -> confirm the hold -> mark paid
+ * and emit. Both failure points have a compensating action: a declined payment
+ * releases the stock hold, and a failure after authorisation voids the
+ * authorisation. This is the classic saga pattern; the alternative - a single
+ * distributed transaction across three databases - is not available here and
+ * would be worse even if it were.
+ *
+ * <p>Confirming the hold is what turns reserved units into a sold decrement.
+ * Skipping it leaves the reservation PENDING, and the sweeper then returns the
+ * units to sale at TTL - i.e. stock for a paid order gets resold.
  *
  * <p>All state changes and their events are written in one transaction via
  * {@link OutboxService}, so a crash can never leave an order whose event was
@@ -121,21 +126,39 @@ public class CheckoutSagaOrchestrator {
             return OrderResponse.from(orderRepository.save(order));
         }
 
-        Order saved = orderRepository.save(order);
+        // ---- Step 3: commit the stock hold -------------------------------
+        confirmReservation(order, tenantId);
 
-        // ---- Emit success events ----------------------------------------
-        List<String> skus = request.lines().stream().map(LineRequest::sku).toList();
-        outboxService.recordOrderEvent(MessagingTopics.ORDER_EVENTS,
-                new OrderCreatedEvent(saved.getId(), saved.getCustomerId(), reservationId,
-                        saved.getTotalAmount(), saved.getCurrency(), skus, Instant.now()),
-                saved, "order.paid", correlationId);
+        // ---- Step 4: persist and emit -------------------------------------
+        Order saved;
+        try {
+            saved = orderRepository.save(order);
+            // Force the INSERT/UPDATE and any constraint check to happen here
+            // rather than at transaction commit. Without this a constraint
+            // violation surfaces after this method returns, the catch below never
+            // runs, and the authorisation is left orphaned.
+            orderRepository.flush();
+
+            List<String> skus = request.lines().stream().map(LineRequest::sku).toList();
+            outboxService.recordOrderEvent(MessagingTopics.ORDER_EVENTS,
+                    new OrderCreatedEvent(saved.getId(), saved.getCustomerId(), reservationId,
+                            saved.getTotalAmount(), saved.getCurrency(), skus, Instant.now()),
+                    saved, "order.paid", correlationId);
+        } catch (RuntimeException e) {
+            // Payment is authorised but this transaction is rolling back, so no
+            // order will ever reference the authorisation. Void it.
+            log.error("Checkout commit failed for order {}; voiding authorisation {}",
+                    orderId, order.getPaymentReference(), e);
+            voidPayment(order, tenantId);
+            throw e;
+        }
 
         log.info("Checkout completed order={} total={} {} customer={}",
                 saved.getId(), saved.getTotalAmount(), saved.getCurrency(), saved.getCustomerId());
         return OrderResponse.from(saved);
     }
 
-    /** Confirms the stock hold, converting reserved units into a sold decrement. */
+    /** Reserves the stock hold for the order's lines. */
     private void reserveStock(String reservationId, Order order, String tenantId) {
         List<StockLine> lines = order.getLines().stream()
                 .map(line -> new StockLine(line.getSku(), line.getQuantity()))
@@ -171,6 +194,70 @@ public class CheckoutSagaOrchestrator {
         } catch (RestClientException e) {
             log.error("Failed to release reservation for order {}; the inventory sweeper "
                     + "will reclaim it at TTL: {}", order.getId(), e.toString());
+        }
+    }
+
+    /**
+     * Releases an authorisation without taking money.
+     *
+     * <p>Wired to the one point in this saga where a failure can occur after
+     * payment has been authorised: the commit that records the order and its
+     * outbox event. Everything before that is either a decline (compensated by
+     * releasing stock) or a success.
+     *
+     * <p>This works across the service boundary because payment lives in its own
+     * database. Our transaction rolls back; the void is committed independently by
+     * payment-service. That independence is the entire reason a compensating
+     * action is possible at all here.
+     *
+     * <p>Idempotent: voiding an already-voided authorisation is a no-op there.
+     */
+    private void voidPayment(Order order, String tenantId) {
+        String reference = order.getPaymentReference();
+        if (reference == null || reference.isBlank()) {
+            return;
+        }
+        try {
+            restClient.post()
+                    .uri("${mesh.clients.payment}/api/payments/{id}/void", reference)
+                    .header("X-Tenant-ID", tenantId)
+                    .retrieve()
+                    .body(Object.class);
+            log.info("Voided authorisation {} for order {}", reference, order.getId());
+        } catch (RestClientException e) {
+            // Nothing retries this. The authorisation stays AUTHORISED and the
+            // provider's own expiry is what eventually releases the hold, so this
+            // is worth alerting on rather than swallowing quietly.
+            log.error("Failed to void authorisation {} for order {}; it stays AUTHORISED "
+                    + "until the provider expires the hold", reference, order.getId(), e);
+        }
+    }
+
+    /**
+     * Converts the stock hold into a sold decrement.
+     *
+     * <p>Without this the reservation stays PENDING and
+     * {@code ReservationExpirySweeper} releases the units at TTL - so the stock
+     * for a paid order goes back on sale roughly
+     * {@code mesh.saga.reservation-ttl-seconds} after the customer paid for it.
+     *
+     * <p>Failure is logged, not thrown. Payment is already authorised by this
+     * point, so failing the checkout would leave the customer with an error and an
+     * authorisation nothing releases. A confirm that fails degrades to the old
+     * behaviour - overselling rather than losing money.
+     */
+    private void confirmReservation(Order order, String tenantId) {
+        try {
+            restClient.post()
+                    .uri("${mesh.clients.inventory}/api/inventory/reservations/{id}/confirm",
+                            order.getInventoryReservationId())
+                    .header("X-Tenant-ID", tenantId)
+                    .retrieve()
+                    .body(Object.class);
+            log.info("Confirmed stock reservation for order {}", order.getId());
+        } catch (RestClientException e) {
+            log.error("Failed to confirm reservation for order {}; the hold expires at TTL "
+                    + "and the units return to sale", order.getId(), e);
         }
     }
 

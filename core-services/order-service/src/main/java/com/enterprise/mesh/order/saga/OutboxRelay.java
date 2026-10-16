@@ -40,7 +40,13 @@ public class OutboxRelay {
     private final OutboxStore outboxStore;
     private final EventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
+    // Both are injected through @RequiredArgsConstructor. The root
+    // lombok.config copies @Value onto the generated constructor parameters;
+    // without that, Spring sees two unannotated int parameters and fails to
+    // start with no candidate bean. The annotation has to be on the field.
+    @Value("${mesh.outbox.batch-size:100}")
     private final int batchSize;
+    @Value("${mesh.outbox.max-attempts:10}")
     private final int maxAttempts;
     @Scheduled(fixedDelayString = "${mesh.outbox.poll-interval-ms:1000}")
     @Transactional(propagation = Propagation.NOT_SUPPORTED)

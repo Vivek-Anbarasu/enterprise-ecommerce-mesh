@@ -11,13 +11,43 @@ import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 
+import lombok.Getter;
+
 /**
  * A shipment for one order.
  *
  * <p>State transitions are monotonic: a carrier cannot un-deliver a parcel, so
  * moving backwards is rejected. {@code @Version} makes concurrent carrier
  * webhooks safe - the duplicate update loses and is simply re-read.
+ *
+ * <p><b>Read-only, deliberately.</b> {@code @Getter} only, no {@code @Setter}:
+ *
+ * <ul>
+ *   <li>{@code status} moves only through {@link #updateStatus} and
+ *       {@link #createLabel}, and {@code isForwardProgress} is the single gate that
+ *       rejects a carrier reporting a parcel going backwards. A setter would
+ *       bypass the only monotonicity guarantee in the class.</li>
+ *   <li>{@code deliveredAt} is set as a side effect of reaching
+ *       {@code DELIVERED}, never independently. Set separately, a shipment could
+ *       report a delivery time for a parcel that never arrived.</li>
+ *   <li>{@code version} is the {@code @Version} optimistic-locking column, and it
+ *       is exactly the field a caller must not be able to write: the whole point
+ *       is that Hibernate controls it when concurrent carrier webhooks race.</li>
+ *   <li>{@code trackingNumber} and {@code labelUrl} are set together by
+ *       {@link #createLabel}, which also advances the status, so the three cannot
+ *       be written independently.</li>
+ *   <li>{@code id} and {@code createdAt} are mapped {@code updatable = false};
+ *       {@code orderId}, {@code tenantId}, {@code customerId} and
+ *       {@code shippingAddress} are fixed at construction.</li>
+ * </ul>
+ *
+ * <p>{@code version} is exposed by a generated {@code getVersion()}, matching
+ * {@code Order}, {@code InventoryItem} and {@code InventoryReservation}. It is
+ * readable on every other entity with a {@code @Version} column, and a caller
+ * debugging a lost optimistic-lock race has no way to see the value without a
+ * debugger.
  */
+@Getter
 @Entity
 @Table(name = "shipments", indexes = {
         @Index(name = "idx_shipment_order", columnList = "order_id"),
@@ -161,61 +191,5 @@ public class Shipment {
                                   || to == ShipmentStatus.RETURNED;
             case DELIVERED, RETURNED, CANCELLED -> false;
         };
-    }
-
-    public String getId() {
-        return id;
-    }
-
-    public String getOrderId() {
-        return orderId;
-    }
-
-    public String getTenantId() {
-        return tenantId;
-    }
-
-    public String getCustomerId() {
-        return customerId;
-    }
-
-    public ShipmentStatus getStatus() {
-        return status;
-    }
-
-    public String getCarrier() {
-        return carrier;
-    }
-
-    public String getServiceLevel() {
-        return serviceLevel;
-    }
-
-    public String getTrackingNumber() {
-        return trackingNumber;
-    }
-
-    public String getLabelUrl() {
-        return labelUrl;
-    }
-
-    public String getShippingAddress() {
-        return shippingAddress;
-    }
-
-    public String getEstimatedDelivery() {
-        return estimatedDelivery;
-    }
-
-    public Instant getDeliveredAt() {
-        return deliveredAt;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public Instant getUpdatedAt() {
-        return updatedAt;
     }
 }

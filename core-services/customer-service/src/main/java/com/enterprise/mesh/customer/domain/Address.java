@@ -9,7 +9,32 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
-/** A delivery address in a customer's address book. */
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.Setter;
+
+/**
+ * A delivery address in a customer's address book.
+ *
+ * <p>Almost every field is fixed at construction and guarded by package-private
+ * {@code attachTo} / {@code markAsDefault} / {@code clearDefault}, so generated
+ * accessors are getter-only here. Two exceptions are annotated explicitly:
+ *
+ * <ul>
+ *   <li>{@code customer} - an ownership boundary. A public setter would let any
+ *       caller repoint an address at a different customer, which is why
+ *       {@code attachTo} is package-private.</li>
+ *   <li>{@code defaultAddress} - Lombok would emit {@code isDefaultAddress()},
+ *       while the established accessor is {@code isDefault()} and is called from
+ *       {@code Customer} and {@code CustomerController}. Suppressing generation
+ *       keeps those call sites unchanged rather than adding a second, parallel
+ *       accessor for the same field.</li>
+ * </ul>
+ *
+ * <p>{@code label} is the one field that is legitimately mutable after
+ * construction, so it is the only one carrying {@code @Setter}.
+ */
+@Getter
 @Entity
 @Table(name = "customer_addresses")
 public class Address {
@@ -21,8 +46,11 @@ public class Address {
 
     @ManyToOne(optional = false)
     @JoinColumn(name = "customer_id", nullable = false)
+    @Setter(AccessLevel.NONE)
     private Customer customer;
 
+    /** User-assigned nickname such as "Home" or "Work". */
+    @Setter
     @Column(name = "label", length = 64)
     private String label;
 
@@ -48,6 +76,12 @@ public class Address {
     @Column(name = "country", nullable = false, length = 2)
     private String country;
 
+    /**
+     * Kept out of {@code @Getter}: the field name would generate
+     * {@code isDefaultAddress()}, and {@code isDefault()} is the established
+     * accessor with three live call sites.
+     */
+    @Getter(AccessLevel.NONE)
     @Column(name = "is_default", nullable = false)
     private boolean defaultAddress;
 
@@ -79,50 +113,6 @@ public class Address {
 
     void clearDefault() {
         this.defaultAddress = false;
-    }
-
-    public Long getId() {
-        return id;
-    }
-
-    public Customer getCustomer() {
-        return customer;
-    }
-
-    public String getLabel() {
-        return label;
-    }
-
-    public void setLabel(String label) {
-        this.label = label;
-    }
-
-    public String getRecipientName() {
-        return recipientName;
-    }
-
-    public String getLine1() {
-        return line1;
-    }
-
-    public String getLine2() {
-        return line2;
-    }
-
-    public String getCity() {
-        return city;
-    }
-
-    public String getState() {
-        return state;
-    }
-
-    public String getPostalCode() {
-        return postalCode;
-    }
-
-    public String getCountry() {
-        return country;
     }
 
     public boolean isDefault() {

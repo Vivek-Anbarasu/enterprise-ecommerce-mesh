@@ -11,6 +11,8 @@ import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 
+import lombok.Getter;
+
 /**
  * A time-boxed hold on stock for a specific checkout attempt.
  *
@@ -18,7 +20,29 @@ import jakarta.persistence.Version;
  * that a retried request maps to the same row (idempotency). If the shopper
  * abandons checkout, the hold must be reclaimed: {@link ReservationStatus#PENDING}
  * rows past their {@code expiresAt} are swept by a scheduled job and released.
+ *
+ * <p><b>Read-only, deliberately - and this is the class where it matters most.</b>
+ * {@code @Getter} only, no {@code @Setter}, because these fields are precisely
+ * what the double-selling protection is built on:
+ *
+ * <ul>
+ *   <li>{@code version} is the {@code @Version} optimistic-locking column. A
+ *       setter would let a caller move it by hand and defeat the very mechanism
+ *       that makes concurrent reservation attempts safe.</li>
+ *   <li>{@code status} only moves through {@link #confirm}, {@link #release} and
+ *       {@link #markExpired}, each of which checks {@link #isPending()} first. That
+ *       check is what stops a confirmed hold being released back into sellable
+ *       stock, or a released one being confirmed - either of which double-sells.</li>
+ *   <li>{@code quantity} and {@code expiresAt} are validated in the constructor
+ *       (positive quantity, expiry in the future). {@code expiresAt} additionally
+ *       drives the expiry sweeper, so a value written out of band would either
+ *       strand stock or release it early.</li>
+ *   <li>{@code reservationId} is the idempotency key and is mapped
+ *       {@code updatable = false}; {@code sku} and {@code tenantId} are part of an
+ *       index and are fixed at construction.</li>
+ * </ul>
  */
+@Getter
 @Entity
 @Table(name = "inventory_reservations", indexes = {
         @Index(name = "idx_reservation_order", columnList = "order_id"),
@@ -128,41 +152,5 @@ public class InventoryReservation {
     public String attachOrder(String orderId) {
         this.orderId = orderId;
         return orderId;
-    }
-
-    public String getReservationId() {
-        return reservationId;
-    }
-
-    public String getSku() {
-        return sku;
-    }
-
-    public String getTenantId() {
-        return tenantId;
-    }
-
-    public String getOrderId() {
-        return orderId;
-    }
-
-    public int getQuantity() {
-        return quantity;
-    }
-
-    public ReservationStatus getStatus() {
-        return status;
-    }
-
-    public Instant getExpiresAt() {
-        return expiresAt;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public long getVersion() {
-        return version;
     }
 }

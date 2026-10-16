@@ -9,6 +9,8 @@ import com.enterprise.mesh.inventoryservice.domain.InventoryItem;
  */
 public class ConcurrentStockUpdateException extends RuntimeException {
 
+    private static final long serialVersionUID = 1L;
+
     public ConcurrentStockUpdateException(String sku, Throwable cause) {
         super("Concurrent stock update detected for SKU " + sku + "; please retry", cause);
     }

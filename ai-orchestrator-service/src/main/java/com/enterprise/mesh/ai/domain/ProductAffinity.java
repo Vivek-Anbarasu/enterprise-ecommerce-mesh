@@ -1,12 +1,12 @@
 package com.enterprise.mesh.ai.domain;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
 
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.mapping.Document;
+
+import lombok.Getter;
 
 /**
  * Coarse interaction signal linking a shopper to a category.
@@ -17,7 +17,27 @@ import org.springframework.data.mongodb.core.mapping.Document;
  *
  * <p>Retention is enforced by {@code expiresAt} plus a TTL index, so a shopper's
  * profile disappears automatically rather than requiring a deletion job.
+ *
+ * <p><b>Read-only, deliberately.</b> {@code @Getter} only - there is no
+ * {@code @Setter}, because {@link #recordInteraction} updates three fields
+ * together and the three must move as a unit:
+ *
+ * <ul>
+ *   <li>{@code score} applies exponential decay before adding the new weight.
+ *       A setter would let a caller overwrite the score outright and skip the
+ *       decay, which is the entire reason stale preference fades.</li>
+ *   <li>{@code interactionCount} and {@code lastInteractionAt} only move when an
+ *       interaction is actually recorded.</li>
+ *   <li>{@code expiresAt} is the TTL index target and must always be derived from
+ *       {@code lastInteractionAt}. Setting them independently lets a profile
+ *       outlive the evidence it was built from - a retention bug that is invisible
+ *       until someone asks why a dormant shopper still has a profile.</li>
+ * </ul>
+ *
+ * <p>{@code customerId} and {@code category} form the compound index key and are
+ * likewise fixed at construction.
  */
+@Getter
 @Document(collection = "product_affinities")
 @CompoundIndex(name = "idx_affinity_customer_category",
         def = "{'customerId': 1, 'category': 1}")
@@ -63,37 +83,5 @@ public class ProductAffinity {
         this.interactionCount++;
         this.lastInteractionAt = Instant.now();
         this.expiresAt = this.lastInteractionAt.plusSeconds(90L * 24 * 60 * 60);
-    }
-
-    public String getId() {
-        return id;
-    }
-
-    public String getCustomerId() {
-        return customerId;
-    }
-
-    public String getTenantId() {
-        return tenantId;
-    }
-
-    public String getCategory() {
-        return category;
-    }
-
-    public double getScore() {
-        return score;
-    }
-
-    public int getInteractionCount() {
-        return interactionCount;
-    }
-
-    public Instant getLastInteractionAt() {
-        return lastInteractionAt;
-    }
-
-    public Instant getExpiresAt() {
-        return expiresAt;
     }
 }

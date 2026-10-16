@@ -2,6 +2,7 @@ package com.enterprise.mesh.customer.domain;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import jakarta.persistence.CascadeType;
@@ -15,13 +16,30 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 
+import lombok.AccessLevel;
+import lombok.Getter;
+
 /**
  * A shopper account.
  *
  * <p>This table holds PII, so it is the most likely target of a breach. No
  * password or credential is ever stored: the {@code subject} claim from the
  * external identity provider is the only credential the mesh trusts.
+ *
+ * <p>Generated accessors are getter-only. Every mutation goes through a named
+ * method - {@code changeEmail}, {@code addAddress}, {@code makeDefault},
+ * {@code removeAddress}, {@code deactivate} - each maintaining an invariant a
+ * setter would bypass. {@code makeDefault} in particular enforces "exactly one
+ * default address", which no field-level setter could express.
+ *
+ * <p>{@code getAddresses()} is suppressed from generation and kept by hand: the
+ * backing collection carries {@code cascade = ALL, orphanRemoval = true}, so
+ * handing out the live list would let a caller clear it and have the address
+ * rows deleted on flush, or append to it without {@code Address.attachTo} and
+ * persist a null owner against a {@code nullable = false} column. Same reasoning
+ * as {@code Order#getLines}.
  */
+@Getter
 @Entity
 @Table(name = "customers", indexes = {
         @Index(name = "idx_customer_tenant_email", columnList = "tenant_id,email"),
@@ -73,6 +91,7 @@ public class Customer {
     private long version;
 
     @OneToMany(mappedBy = "customer", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Getter(AccessLevel.NONE)
     private List<Address> addresses = new ArrayList<>();
 
     protected Customer() {
@@ -151,59 +170,21 @@ public class Customer {
         this.updatedAt = Instant.now();
     }
 
-    public String getId() {
-        return id;
-    }
-
-    public String getSubject() {
-        return subject;
-    }
-
-    public String getTenantId() {
-        return tenantId;
-    }
-
-    public String getEmail() {
-        return email;
-    }
-
-    public String getDisplayName() {
-        return displayName;
-    }
-
-    public String getPhone() {
-        return phone;
-    }
-
-    public CustomerStatus getStatus() {
-        return status;
-    }
-
-    public boolean isMarketingOptIn() {
-        return marketingOptIn;
-    }
-
-    public String getLocale() {
-        return locale;
-    }
-
-    public String getTimezone() {
-        return timezone;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public Instant getUpdatedAt() {
-        return updatedAt;
-    }
-
-    public long getVersion() {
-        return version;
-    }
-
+    /**
+     * The address book, read-only.
+     *
+     * <p>Unmodifiable on purpose. This collection is
+     * {@code cascade = ALL, orphanRemoval = true}, so exposing it live means a
+     * caller that clears it has the rows deleted on the next flush, and a caller
+     * that adds to it bypasses {@link #addAddress} - skipping the
+     * first-address-becomes-default rule and {@code Address.attachTo}, producing
+     * an orphan with a null owner.
+     *
+     * <p>{@code CustomerService} reads this straight through to the controller;
+     * it maps to response records and never mutates, so wrapping it costs
+     * nothing today and closes the hole for the next caller.
+     */
     public List<Address> getAddresses() {
-        return addresses;
+        return Collections.unmodifiableList(addresses);
     }
 }
