@@ -11,6 +11,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 
+import lombok.Getter;
+
 /**
  * One payment attempt against a provider.
  *
@@ -18,7 +20,30 @@ import jakarta.persistence.Table;
  * is what makes a retried authorisation return the original result rather than
  * creating a second charge. Every write path must therefore treat it as
  * immutable once set.
+ *
+ * <p><b>Read-only, deliberately.</b> {@code @Getter} only - there is no
+ * {@code @Setter}, and adding one would be a defect rather than a convenience:
+ *
+ * <ul>
+ *   <li>{@link #requireStatus} exists to reject illegal transitions. A setter on
+ *       {@code status} bypasses it, which is how a payment ends up captured after
+ *       being refunded, or refunded without ever being captured.</li>
+ *   <li>{@code idempotencyKey} must stay immutable once set (see above). Its
+ *       unique index is the only thing preventing a replayed authorisation from
+ *       creating a second charge.</li>
+ *   <li>{@code id} and {@code createdAt} are mapped {@code updatable = false}.
+ *       Hibernate refuses to write them, so a setter would advertise a capability
+ *       the persistence layer silently ignores - the worst kind of setter.</li>
+ *   <li>{@code updatedAt} only ever advances inside the behaviour methods below.
+ *       A setter would let it drift from the last real transition.</li>
+ * </ul>
+ *
+ * <p>Every mutation therefore goes through {@code authorise}, {@code capture},
+ * {@code voidAuthorisation}, {@code refund} or {@code decline}, each of which
+ * validates the current state first. See {@code Address} for the same convention
+ * stated from the other direction, where a single field genuinely is mutable.
  */
+@Getter
 @Entity
 @Table(name = "payments", indexes = {
         @Index(name = "idx_payment_order", columnList = "order_id"),
@@ -139,53 +164,5 @@ public class Payment {
             throw new IllegalStateException(
                     "Cannot " + operation + " a payment in state " + this.status + " (" + id + ")");
         }
-    }
-
-    public String getId() {
-        return id;
-    }
-
-    public String getIdempotencyKey() {
-        return idempotencyKey;
-    }
-
-    public String getTenantId() {
-        return tenantId;
-    }
-
-    public String getOrderId() {
-        return orderId;
-    }
-
-    public BigDecimal getAmount() {
-        return amount;
-    }
-
-    public String getCurrency() {
-        return currency;
-    }
-
-    public PaymentStatus getStatus() {
-        return status;
-    }
-
-    public String getProviderReference() {
-        return providerReference;
-    }
-
-    public String getInstrumentLabel() {
-        return instrumentLabel;
-    }
-
-    public String getDeclineReason() {
-        return declineReason;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public Instant getUpdatedAt() {
-        return updatedAt;
     }
 }

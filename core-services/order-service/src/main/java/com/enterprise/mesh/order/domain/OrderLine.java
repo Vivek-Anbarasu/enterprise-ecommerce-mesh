@@ -12,13 +12,27 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
+import lombok.Getter;
+
 /**
  * A priced line on an order.
  *
  * <p>Unit price and line total are snapshots taken at checkout. Re-deriving them
  * from the catalogue later would silently change what a customer agreed to pay
  * whenever a price is updated.
+ *
+ * <p><b>Read-only, deliberately.</b> {@code @Getter} only, no {@code @Setter}:
+ * the two money fields are the checkout snapshot the class exists to preserve, so
+ * they must be immutable for the lifetime of the line. Nothing may move them
+ * without also re-running {@code Order.recalculateTotals}, which reads
+ * {@code getLineTotal()} from every line - a line whose total changed on its own
+ * would leave the order header describing a set of lines it no longer has.
+ *
+ * <p>{@code order} is the owning aggregate, fixed at construction. It is also
+ * what makes this an aggregate child rather than a standalone entity: lines are
+ * reached through {@code Order.getLines()}, and are created and removed with it.
  */
+@Getter
 @Entity
 @Table(name = "order_lines")
 public class OrderLine {
@@ -60,33 +74,5 @@ public class OrderLine {
         this.quantity = quantity;
         this.unitPrice = unitPrice;
         this.lineTotal = lineTotal;
-    }
-
-    public Long getId() {
-        return id;
-    }
-
-    public Order getOrder() {
-        return order;
-    }
-
-    public String getSku() {
-        return sku;
-    }
-
-    public String getProductName() {
-        return productName;
-    }
-
-    public int getQuantity() {
-        return quantity;
-    }
-
-    public BigDecimal getUnitPrice() {
-        return unitPrice;
-    }
-
-    public BigDecimal getLineTotal() {
-        return lineTotal;
     }
 }

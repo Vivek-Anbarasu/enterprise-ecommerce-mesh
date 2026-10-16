@@ -1,5 +1,7 @@
 package com.enterprise.mesh.bff.session;
 
+import lombok.Getter;
+
 /**
  * Raised when a request presents a session cookie that no longer resolves to a
  * usable token bundle.
@@ -11,8 +13,14 @@ package com.enterprise.mesh.bff.session;
  * the login flow - so they are deliberately collapsed into one signal rather than
  * surfaced as three distinguishable errors that would only tempt a client to treat
  * a recoverable case as fatal.
+ *
+ * <p>{@code anonymous} is true when the request had no session to begin with, as
+ * opposed to having a broken one.
  */
+@Getter
 public class SessionExpiredException extends RuntimeException {
+
+    private static final long serialVersionUID = 1L;
 
     private final boolean anonymous;
 
@@ -23,10 +31,5 @@ public class SessionExpiredException extends RuntimeException {
     public SessionExpiredException(String message, boolean anonymous, Throwable cause) {
         super(message, cause);
         this.anonymous = anonymous;
-    }
-
-    /** True when the request had no session to begin with, as opposed to a broken one. */
-    public boolean isAnonymous() {
-        return anonymous;
     }
 }

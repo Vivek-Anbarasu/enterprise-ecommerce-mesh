@@ -147,6 +147,7 @@ The BFF boots without any identity-provider configuration and logs a warning; on
 
 ## Documentation
 
+- [docs/REQUEST-FLOW-END-TO-END.md](docs/REQUEST-FLOW-END-TO-END.md) - end-to-end request flow across all eight request paths, hop by hop
 - [docs/BFF-SESSION.md](docs/BFF-SESSION.md) - BFF session model, silent refresh, aggregation and its failure modes
 - [docs/AKS-DEPLOYMENT.md](docs/AKS-DEPLOYMENT.md) - cluster setup and deployment
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - service design and data flow

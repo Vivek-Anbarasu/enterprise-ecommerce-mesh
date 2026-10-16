@@ -2,6 +2,8 @@ package com.enterprise.mesh.security;
 
 import java.util.List;
 
+import lombok.Getter;
+import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -12,8 +14,17 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * {@code spring.security.oauth2.resourceserver.jwt.*} properties so that any
  * supported key source (JWKS URI, PEM public key mounted from Key Vault via the
  * CSI driver, etc.) works without custom code.
+ *
+ * <p>Accessors are generated. {@code @Setter} deliberately produces nothing for
+ * the {@code final tenant} field - it is always present and is mutated through
+ * its own setters, never replaced. {@code Tenant} is annotated separately and
+ * independently; class-level annotations do not cascade to a nested class, and
+ * omitting it breaks binding of {@code mesh.tenant.*} silently rather than at
+ * compile time.
  */
 @ConfigurationProperties(prefix = "mesh")
+@Getter
+@Setter
 public class MeshSecurityProperties {
 
     /** Master switch for the mesh filter chain. */
@@ -21,18 +32,8 @@ public class MeshSecurityProperties {
 
     private final Tenant tenant = new Tenant();
 
-    public boolean isEnabled() {
-        return enabled;
-    }
-
-    public void setEnabled(boolean enabled) {
-        this.enabled = enabled;
-    }
-
-    public Tenant getTenant() {
-        return tenant;
-    }
-
+    @Getter
+    @Setter
     public static class Tenant {
 
         /** When false a request without a resolvable tenant is rejected. */
@@ -49,45 +50,5 @@ public class MeshSecurityProperties {
 
         /** Tenants allow-listed for this deployment; empty means allow all. */
         private List<String> allowed = List.of();
-
-        public boolean isRequired() {
-            return required;
-        }
-
-        public void setRequired(boolean required) {
-            this.required = required;
-        }
-
-        public String getHeaderName() {
-            return headerName;
-        }
-
-        public void setHeaderName(String headerName) {
-            this.headerName = headerName;
-        }
-
-        public String getClaimName() {
-            return claimName;
-        }
-
-        public void setClaimName(String claimName) {
-            this.claimName = claimName;
-        }
-
-        public String getDefaultTenant() {
-            return defaultTenant;
-        }
-
-        public void setDefaultTenant(String defaultTenant) {
-            this.defaultTenant = defaultTenant;
-        }
-
-        public List<String> getAllowed() {
-            return allowed;
-        }
-
-        public void setAllowed(List<String> allowed) {
-            this.allowed = allowed;
-        }
     }
 }

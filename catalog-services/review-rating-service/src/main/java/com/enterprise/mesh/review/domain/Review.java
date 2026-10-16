@@ -8,17 +8,49 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.mapping.Document;
 
+import lombok.Getter;
+
 /**
  * A product review.
  *
- * <p>One review per customer per product, enforced by a unique compound index
- * rather than a read-then-write check: two concurrent submissions would
- * otherwise both pass the check and create duplicates.
+ * <p>One review per customer per product <em>per tenant</em>, enforced by a
+ * unique compound index rather than a read-then-write check: two concurrent
+ * submissions would otherwise both pass the check and create duplicates.
+ *
+ * <p>tenantId leads every index here, matching the queries in
+ * {@code ReviewService} and the mesh-wide rule that the tenant is part of every
+ * unique index. The previous definition omitted it, which did two things: it
+ * let two tenants collide on the same (productId, customerId) pair, and the
+ * {productId, moderationStatus, createdAt} read index could not serve a query
+ * that filters on tenantId.
+ *
+ * <p>Migration: Spring creates the new indexes but never drops the old ones, so
+ * {@code ux_review_product_customer} and {@code idx_review_product_visible} must
+ * be dropped explicitly. See platform/docker/mongo-init-reviews.js.
+ *
+ * <p><b>Read-only, deliberately.</b> {@code @Getter} only - there is no
+ * {@code @Setter}. Each mutable field is owned by exactly one of the three
+ * behaviour methods below, and several of them validate on the way in:
+ *
+ * <ul>
+ *   <li>{@link #edit} re-checks the 1-5 rating range, so a setter would let a
+ *       moderator's edit store a rating the constructor would have rejected.</li>
+ *   <li>{@link #moderate} owns {@code moderationStatus}; the moderation pipeline
+ *       is the only thing that should move it.</li>
+ *   <li>{@link #markHelpful} increments {@code helpfulCount}. A setter would make
+ *       the count a value rather than a tally, which is the one thing it must not
+ *       be.</li>
+ * </ul>
+ *
+ * <p>{@code productId}, {@code tenantId} and {@code customerId} form the unique
+ * compound index and are fixed at construction.
  */
+@Getter
 @Document(collection = "reviews")
-@CompoundIndex(name = "ux_review_product_customer", def = "{'productId': 1, 'customerId': 1}",
-        unique = true)
-@CompoundIndex(name = "idx_review_product_visible", def = "{'productId': 1, 'moderationStatus': 1, 'createdAt': -1}")
+@CompoundIndex(name = "ux_review_tenant_product_customer",
+        def = "{'tenantId': 1, 'productId': 1, 'customerId': 1}", unique = true)
+@CompoundIndex(name = "idx_review_tenant_product_visible",
+        def = "{'tenantId': 1, 'productId': 1, 'moderationStatus': 1, 'createdAt': -1}")
 public class Review {
 
     @Id
@@ -101,61 +133,5 @@ public class Review {
 
     public void markHelpful() {
         this.helpfulCount++;
-    }
-
-    public String getId() {
-        return id;
-    }
-
-    public String getProductId() {
-        return productId;
-    }
-
-    public String getTenantId() {
-        return tenantId;
-    }
-
-    public String getCustomerId() {
-        return customerId;
-    }
-
-    public String getCustomerDisplayName() {
-        return customerDisplayName;
-    }
-
-    public int getRating() {
-        return rating;
-    }
-
-    public String getTitle() {
-        return title;
-    }
-
-    public String getBody() {
-        return body;
-    }
-
-    public List<String> getImageUrls() {
-        return imageUrls;
-    }
-
-    public boolean isVerifiedPurchase() {
-        return verifiedPurchase;
-    }
-
-    public int getHelpfulCount() {
-        return helpfulCount;
-    }
-
-    public ModerationStatus getModerationStatus() {
-        return moderationStatus;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public Instant getUpdatedAt() {
-        return updatedAt;
     }
 }

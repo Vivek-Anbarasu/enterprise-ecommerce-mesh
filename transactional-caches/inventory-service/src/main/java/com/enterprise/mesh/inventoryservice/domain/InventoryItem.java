@@ -9,6 +9,8 @@ import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 
+import lombok.Getter;
+
 /**
  * Sellable stock for one SKU at one location.
  *
@@ -18,7 +20,35 @@ import jakarta.persistence.Version;
  * {@code onHand} on reserve) means a reservation can be released without having
  * to guess how much to put back, and abandoned carts do not permanently
  * cannibalise availability.
+ *
+ * <p><b>Read-only, deliberately.</b> {@code @Getter} only, no {@code @Setter},
+ * because {@code onHand}, {@code reserved} and {@code safetyStock} are a ledger
+ * that only ever moves as a balanced pair:
+ *
+ * <ul>
+ *   <li>Every mutation goes through {@link #reserve}, {@link #release},
+ *       {@link #confirm} or {@link #receive}. Each validates its argument and then
+ *       calls {@code touch()}. A setter would bypass all four.</li>
+ *   <li>{@link #confirm} is the point revenue is recognised, and it moves
+ *       {@code reserved} and {@code onHand} <em>together</em>. A setter on either
+ *       would let stock be decremented without releasing the hold, or a hold
+ *       released without decrementing stock - either corrupts the ledger and
+ *       eventually double-sells.</li>
+ *   <li>{@link #release} and {@link #confirm} clamp at zero precisely so a
+ *       double-release cannot drive the counter negative. That protection lives in
+ *       the method body and is gone the moment a setter exists.</li>
+ *   <li>{@code version} is the {@code @Version} optimistic-locking column; a
+ *       setter would defeat the concurrency control the reservation flow relies
+ *       on.</li>
+ *   <li>{@code updatedAt} only ever moves via {@code touch()}, so it always
+ *       reflects a real stock movement rather than an incidental write.</li>
+ * </ul>
+ *
+ * <p>{@link #available()} stays a method, not a generated getter: it is derived
+ * from three fields and floored at zero, so materialising it as a value would
+ * introduce a fourth field that can disagree with the three it is computed from.
  */
+@Getter
 @Entity
 @Table(name = "inventory_items", indexes = {
         @Index(name = "idx_inventory_sku_tenant", columnList = "sku,tenant_id"),
@@ -143,41 +173,5 @@ public class InventoryItem {
 
     private void touch() {
         this.updatedAt = Instant.now();
-    }
-
-    public String getId() {
-        return id;
-    }
-
-    public String getSku() {
-        return sku;
-    }
-
-    public String getTenantId() {
-        return tenantId;
-    }
-
-    public String getLocationCode() {
-        return locationCode;
-    }
-
-    public int getOnHand() {
-        return onHand;
-    }
-
-    public int getReserved() {
-        return reserved;
-    }
-
-    public int getSafetyStock() {
-        return safetyStock;
-    }
-
-    public long getVersion() {
-        return version;
-    }
-
-    public Instant getUpdatedAt() {
-        return updatedAt;
     }
 }

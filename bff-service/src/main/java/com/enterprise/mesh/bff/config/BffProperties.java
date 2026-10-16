@@ -3,6 +3,8 @@ package com.enterprise.mesh.bff.config;
 import java.time.Duration;
 import java.util.List;
 
+import lombok.Getter;
+import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -11,8 +13,16 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * <p>Deliberately does not reuse {@code MeshSecurityProperties}: this service is
  * stateful and cookie-authenticated, whereas that one describes the stateless
  * bearer-token posture every other mesh service runs with.
+ *
+ * <p>Accessors are generated. These are bound by JavaBean binding, so the public
+ * setters are the binding contract rather than incidental surface. The field
+ * comments below carry the design rationale for the timeout ordering and the
+ * enumerated CORS allow-list, and are worth more than the accessors they sat
+ * next to.
  */
 @ConfigurationProperties(prefix = "mesh.bff")
+@Getter
+@Setter
 public class BffProperties {
 
     /**
@@ -85,84 +95,4 @@ public class BffProperties {
      * producing a session that dies an hour later with an opaque error.
      */
     private boolean refreshEnabled = true;
-
-    public String getGatewayUri() {
-        return gatewayUri;
-    }
-
-    public void setGatewayUri(String gatewayUri) {
-        this.gatewayUri = gatewayUri;
-    }
-
-    public String getRegistrationId() {
-        return registrationId;
-    }
-
-    public void setRegistrationId(String registrationId) {
-        this.registrationId = registrationId;
-    }
-
-    public Duration getConnectTimeout() {
-        return connectTimeout;
-    }
-
-    public void setConnectTimeout(Duration connectTimeout) {
-        this.connectTimeout = connectTimeout;
-    }
-
-    public Duration getReadTimeout() {
-        return readTimeout;
-    }
-
-    public void setReadTimeout(Duration readTimeout) {
-        this.readTimeout = readTimeout;
-    }
-
-    public Duration getRefreshSkew() {
-        return refreshSkew;
-    }
-
-    public void setRefreshSkew(Duration refreshSkew) {
-        this.refreshSkew = refreshSkew;
-    }
-
-    public Duration getAggregationTimeout() {
-        return aggregationTimeout;
-    }
-
-    public void setAggregationTimeout(Duration aggregationTimeout) {
-        this.aggregationTimeout = aggregationTimeout;
-    }
-
-    public List<String> getAllowedOrigins() {
-        return allowedOrigins;
-    }
-
-    public void setAllowedOrigins(List<String> allowedOrigins) {
-        this.allowedOrigins = allowedOrigins;
-    }
-
-    public String getCsrfHeader() {
-        return csrfHeader;
-    }
-
-    public void setCsrfHeader(String csrfHeader) {
-        this.csrfHeader = csrfHeader;
-    }
-
-    public String getCsrfCookieName() {
-        return csrfCookieName;
-    }
-
-    public void setCsrfCookieName(String csrfCookieName) {
-        this.csrfCookieName = csrfCookieName;
-    }
-
-    public boolean isRefreshEnabled() {
-        return refreshEnabled;
-    }
-
-    public void setRefreshEnabled(boolean refreshEnabled) {
-        this.refreshEnabled = refreshEnabled;
-    }
 }

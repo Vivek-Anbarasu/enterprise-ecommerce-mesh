@@ -41,6 +41,12 @@ services:
       - "27017:27017"
     volumes:
       - mongo-data:/data/db
+      # Index bootstrap. Runs once on a fresh volume. Both Mongo services set
+      # auto-index-creation: false (catalog) or true (reviews, which still needs
+      # the stale indexes dropped), so these scripts are what make the declared
+      # indexes real. See platform/docker/mongo-init*.js
+      - ./platform/docker/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+      - ./platform/docker/mongo-init-reviews.js:/docker-entrypoint-initdb.d/mongo-init-reviews.js:ro
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
       interval: 10s

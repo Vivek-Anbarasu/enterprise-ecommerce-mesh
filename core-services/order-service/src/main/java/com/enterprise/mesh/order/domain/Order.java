@@ -17,14 +17,35 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 
+import lombok.AccessLevel;
+import lombok.Getter;
+
 /**
  * An order aggregate: the checkout root.
  *
  * <p>Status transitions are guarded by {@link #transitionTo(OrderStatus)} so
- * that an illegal move (for example SHIPPED -> PAID) fails loudly instead of
+ * that an illegal move (for example SHIPPED to PAID) fails loudly instead of
  * corrupting the lifecycle. The aggregate is the transaction boundary; nothing
  * outside it may mutate its lines.
+ *
+ * <p><b>Read-only, deliberately.</b> {@code @Getter} only - there is no
+ * {@code @Setter}, because the three amount fields are one derived value:
+ * {@code totalAmount} is recomputed from the lines plus tax and shipping by
+ * {@link #recalculateTotals}, and the field comment above records that it is a
+ * denormalised snapshot taken at checkout. A setter would let a caller set a
+ * total that corresponds to no line, which is exactly the corruption the
+ * snapshot exists to prevent.
+ *
+ * <p>{@code status} and {@code updatedAt} likewise only move inside
+ * {@link #transitionTo}, the single gate that rejects an illegal move.
+ *
+ * <p>{@code lines} opts out of generation entirely
+ * ({@code @Getter(AccessLevel.NONE)}) and keeps its hand-written accessor. That
+ * one is not boilerplate: it returns an unmodifiable view, so no caller can
+ * reach in and mutate the aggregate from outside, and a generated getter would
+ * hand out the live list and quietly break that boundary.
  */
+@Getter
 @Entity
 @Table(name = "orders")
 public class Order {
@@ -117,6 +138,9 @@ public class Order {
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true,
                fetch = FetchType.LAZY)
+    // Generation suppressed, not overridden: see getLines() below, which returns
+    // an unmodifiable view rather than the live list.
+    @Getter(AccessLevel.NONE)
     private List<OrderLine> lines = new ArrayList<>();
 
     protected Order() {
@@ -214,74 +238,17 @@ public class Order {
         transitionTo(OrderStatus.FAILED);
     }
 
-    public String getId() {
-        return id;
-    }
-
-    public String getIdempotencyKey() {
-        return idempotencyKey;
-    }
-
-    public String getTenantId() {
-        return tenantId;
-    }
-
-    public String getCustomerId() {
-        return customerId;
-    }
-
-    public String getInventoryReservationId() {
-        return inventoryReservationId;
-    }
-
-    public OrderStatus getStatus() {
-        return status;
-    }
-
-    public BigDecimal getTotalAmount() {
-        return totalAmount;
-    }
-
-    public String getCurrency() {
-        return currency;
-    }
-
-    public BigDecimal getTaxAmount() {
-        return taxAmount;
-    }
-
-    public BigDecimal getShippingAmount() {
-        return shippingAmount;
-    }
-
-    public String getPaymentReference() {
-        return paymentReference;
-    }
-
-    public String getShippingAddress() {
-        return shippingAddress;
-    }
-
-    public String getCorrelationId() {
-        return correlationId;
-    }
-
-    public String getFailureReason() {
-        return failureReason;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public Instant getUpdatedAt() {
-        return updatedAt;
-    }
-
-    public long getVersion() {
-        return version;
-    }
-
+    /**
+     * Returns an unmodifiable view of the order's lines.
+     *
+     * <p>Hand-written, and the reason {@code lines} carries
+     * {@code @Getter(AccessLevel.NONE)}: a generated getter would return the live
+     * {@code List}, letting any caller add or remove lines behind the aggregate's
+     * back. That would bypass {@link #recalculateTotals}, leaving {@code
+     * totalAmount} describing a set of lines the order no longer has, and it would
+     * break the aggregate boundary the class javadoc relies on - nothing outside
+     * may mutate its lines.
+     */
     public List<OrderLine> getLines() {
         return Collections.unmodifiableList(lines);
     }

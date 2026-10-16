@@ -8,6 +8,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 
+import lombok.Getter;
+
 /**
  * Transactional outbox row.
  *
@@ -17,7 +19,34 @@ import jakarta.persistence.Table;
  * paid order that no fulfilment service ever hears about.
  *
  * <p>Relay is at-least-once, so consumers must be idempotent on {@code event_id}.
+ *
+ * <p><b>Read-only, deliberately.</b> {@code @Getter} only, no {@code @Setter}.
+ * The relay's correctness depends on the three relay-owned columns being writable
+ * only through the two methods that maintain them:
+ *
+ * <ul>
+ *   <li>{@code publishedAt} is the leading column of
+ *       {@code idx_outbox_unpublished}, which is the index the relay poller scans
+ *       for work. A setter would let a caller mark an event published without
+ *       clearing {@code lastError}, or set it out of band and have the poller skip
+ *       an event that never reached Kafka - the precise failure the outbox exists
+ *       to prevent.</li>
+ *   <li>{@link #recordFailure} truncates {@code lastError} to 1023 characters so
+ *       it fits its {@code varchar(1024)} column. The truncation lives in the
+ *       method body and is gone the moment a setter exists, turning a long
+ *       provider error into a failed relay rather than a recorded one.</li>
+ *   <li>{@code attempts} is a tally incremented by {@code recordFailure}, not a
+ *       value. {@link #markPublished} deliberately leaves it alone: the attempt
+ *       count is what tells an operator how hard a poison event was retried.</li>
+ * </ul>
+ *
+ * <p>{@code id} and {@code eventId} are mapped {@code updatable = false} and are
+ * the keys consumers deduplicate on; {@code payload} is the serialised event and
+ * {@code createdAt} its ordering key. {@link #isPublished()} stays a method: it is
+ * derived from {@code publishedAt}, and there is no backing field for a getter to
+ * collide with.
  */
+@Getter
 @Entity
 @Table(name = "outbox_events", indexes = {
         @Index(name = "idx_outbox_unpublished", columnList = "published_at,id"),
@@ -102,61 +131,5 @@ public class OutboxEvent {
 
     public boolean isPublished() {
         return publishedAt != null;
-    }
-
-    public String getId() {
-        return id;
-    }
-
-    public String getEventId() {
-        return eventId;
-    }
-
-    public String getTopic() {
-        return topic;
-    }
-
-    public String getEventType() {
-        return eventType;
-    }
-
-    public String getAggregateType() {
-        return aggregateType;
-    }
-
-    public String getAggregateId() {
-        return aggregateId;
-    }
-
-    public String getTenantId() {
-        return tenantId;
-    }
-
-    public int getSchemaVersion() {
-        return schemaVersion;
-    }
-
-    public String getCorrelationId() {
-        return correlationId;
-    }
-
-    public String getPayload() {
-        return payload;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public Instant getPublishedAt() {
-        return publishedAt;
-    }
-
-    public int getAttempts() {
-        return attempts;
-    }
-
-    public String getLastError() {
-        return lastError;
     }
 }

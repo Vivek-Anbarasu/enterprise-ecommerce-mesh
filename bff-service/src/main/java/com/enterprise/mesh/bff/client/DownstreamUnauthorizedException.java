@@ -13,6 +13,15 @@ package com.enterprise.mesh.bff.client;
  */
 public class DownstreamUnauthorizedException extends DownstreamException {
 
+    private static final long serialVersionUID = 1L;
+
+    /**
+     * Shadows {@link DownstreamException}'s field of the same name and overrides its
+     * getter to read this one. Both are assigned the same value, so the accessor
+     * behaves identically either way - but a redundant copy of a field on a
+     * Serializable type is one more thing that can drift out of step. Safe to drop
+     * both and inherit the generated {@code getPath()}.
+     */
     private final String path;
 
     public DownstreamUnauthorizedException(String path, Throwable cause) {

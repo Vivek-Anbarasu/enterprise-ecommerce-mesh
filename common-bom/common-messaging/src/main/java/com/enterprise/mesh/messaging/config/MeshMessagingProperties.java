@@ -3,14 +3,22 @@ package com.enterprise.mesh.messaging.config;
 import java.time.Duration;
 import java.util.Map;
 
+import lombok.Getter;
+import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * Mesh-wide messaging tunables. Bootstrap servers still come from
  * {@code spring.kafka.bootstrap-servers} so standard Spring tooling and
  * tooling/actuators keep working unchanged.
+ *
+ * <p>Accessors are generated. These are bound by JavaBean binding, so the public
+ * setters are the binding contract rather than incidental surface: Spring Boot's
+ * relaxed binding calls them directly to apply {@code mesh.messaging.*}.
  */
 @ConfigurationProperties(prefix = "mesh.messaging")
+@Getter
+@Setter
 public class MeshMessagingProperties {
 
     /**
@@ -47,92 +55,4 @@ public class MeshMessagingProperties {
 
     /** Pause between consumer polls; gives the pod a chance to breathe. */
     private Duration idleBetweenPolls = Duration.ofMillis(100);
-
-    public boolean isAutoCreateTopics() {
-        return autoCreateTopics;
-    }
-
-    public void setAutoCreateTopics(boolean autoCreateTopics) {
-        this.autoCreateTopics = autoCreateTopics;
-    }
-
-    public int getPartitions() {
-        return partitions;
-    }
-
-    public void setPartitions(int partitions) {
-        this.partitions = partitions;
-    }
-
-    public short getReplicas() {
-        return replicas;
-    }
-
-    public void setReplicas(short replicas) {
-        this.replicas = replicas;
-    }
-
-    public Map<String, String> getTopicConfigs() {
-        return topicConfigs;
-    }
-
-    public void setTopicConfigs(Map<String, String> topicConfigs) {
-        this.topicConfigs = topicConfigs;
-    }
-
-    public int getConsumerConcurrency() {
-        return consumerConcurrency;
-    }
-
-    public void setConsumerConcurrency(int consumerConcurrency) {
-        this.consumerConcurrency = consumerConcurrency;
-    }
-
-    public int getMaxPollRecords() {
-        return maxPollRecords;
-    }
-
-    public void setMaxPollRecords(int maxPollRecords) {
-        this.maxPollRecords = maxPollRecords;
-    }
-
-    public Duration getRetryInterval() {
-        return retryInterval;
-    }
-
-    public void setRetryInterval(Duration retryInterval) {
-        this.retryInterval = retryInterval;
-    }
-
-    public long getMaxRetries() {
-        return maxRetries;
-    }
-
-    public void setMaxRetries(long maxRetries) {
-        this.maxRetries = maxRetries;
-    }
-
-    public Duration getDeliveryTimeout() {
-        return deliveryTimeout;
-    }
-
-    public void setDeliveryTimeout(Duration deliveryTimeout) {
-        this.deliveryTimeout = deliveryTimeout;
-    }
-
-    public Duration getRequestTimeout() {
-        return requestTimeout;
-    }
-
-    public void setRequestTimeout(Duration requestTimeout) {
-        this.requestTimeout = requestTimeout;
-    }
-
-    public Duration getIdleBetweenPolls() {
-        return idleBetweenPolls;
-    }
-
-    public void setIdleBetweenPolls(Duration idleBetweenPolls) {
-        this.idleBetweenPolls = idleBetweenPolls;
-    }
 }

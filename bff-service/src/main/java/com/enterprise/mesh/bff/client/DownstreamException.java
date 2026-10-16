@@ -1,5 +1,7 @@
 package com.enterprise.mesh.bff.client;
 
+import lombok.Getter;
+
 import org.springframework.http.HttpStatusCode;
 
 /**
@@ -11,7 +13,10 @@ import org.springframework.http.HttpStatusCode;
  * gateway payloads can quote upstream URLs and service names. The detail string is
  * written by the BFF and is safe to show.
  */
+@Getter
 public class DownstreamException extends RuntimeException {
+
+    private static final long serialVersionUID = 1L;
 
     private final int status;
     private final String path;
@@ -20,14 +25,6 @@ public class DownstreamException extends RuntimeException {
         super(detail, cause);
         this.status = status;
         this.path = path;
-    }
-
-    public int getStatus() {
-        return status;
-    }
-
-    public String getPath() {
-        return path;
     }
 
     public static DownstreamException from(HttpStatusCode status, String path, String detail) {

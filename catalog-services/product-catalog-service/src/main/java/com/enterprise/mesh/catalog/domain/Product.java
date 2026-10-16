@@ -5,6 +5,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
+import lombok.Getter;
+import lombok.Setter;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.index.Indexed;
@@ -17,15 +19,32 @@ import org.springframework.data.mongodb.core.mapping.Document;
  * wildly by category (laptops have CPU/RAM, jackets do not) and reads vastly
  * outnumber writes. Prices are held as {@link BigDecimal} and stored as Decimal128
  * to avoid binary floating point drift on money.
+ *
+ * <p>A plain mutable bean: no invariants, no derived state, no state machine.
+ * That is the reason it is the one persistence class in the project where
+ * generated accessors are the right trade - {@code Order} and {@code Payment}
+ * mutate only through named methods precisely because their transitions are
+ * guarded, and bean setters would bypass those guards. Nothing here computes
+ * from another field, so live collection access cannot drift the way
+ * {@code Order.getLines()} could.
  */
 @Document(collection = "products")
 @CompoundIndex(name = "tenant_active_category", def = "{'tenantId': 1, 'active': 1, 'category': 1}")
+@CompoundIndex(name = "ux_product_tenant_sku", def = "{'tenantId': 1, 'sku': 1}", unique = true)
+@Getter
+@Setter
 public class Product {
 
     @Id
     private String id;
 
-    @Indexed(unique = true)
+    /**
+     * Unique per tenant, not globally: uniqueness is enforced by
+     * {@code ux_product_tenant_sku}. Two tenants are independent catalogues and
+     * may both stock {@code SKU-1001}. A bare unique index on this field would
+     * make the first tenant to claim a SKU lock every other tenant out of it.
+     */
+    @Indexed
     private String sku;
 
     @Indexed
@@ -71,141 +90,5 @@ public class Product {
 
     /** An amount with its currency. */
     public record Money(BigDecimal amount, String currency) {
-    }
-
-    public String getId() {
-        return id;
-    }
-
-    public void setId(String id) {
-        this.id = id;
-    }
-
-    public String getSku() {
-        return sku;
-    }
-
-    public void setSku(String sku) {
-        this.sku = sku;
-    }
-
-    public String getTenantId() {
-        return tenantId;
-    }
-
-    public void setTenantId(String tenantId) {
-        this.tenantId = tenantId;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public String getDescription() {
-        return description;
-    }
-
-    public void setDescription(String description) {
-        this.description = description;
-    }
-
-    public String getCategory() {
-        return category;
-    }
-
-    public void setCategory(String category) {
-        this.category = category;
-    }
-
-    public String getBrand() {
-        return brand;
-    }
-
-    public void setBrand(String brand) {
-        this.brand = brand;
-    }
-
-    public List<Attribute> getAttributes() {
-        return attributes;
-    }
-
-    public void setAttributes(List<Attribute> attributes) {
-        this.attributes = attributes;
-    }
-
-    public List<Money> getPriceList() {
-        return priceList;
-    }
-
-    public void setPriceList(List<Money> priceList) {
-        this.priceList = priceList;
-    }
-
-    public Money getBasePrice() {
-        return basePrice;
-    }
-
-    public void setBasePrice(Money basePrice) {
-        this.basePrice = basePrice;
-    }
-
-    public List<String> getImageUrls() {
-        return imageUrls;
-    }
-
-    public void setImageUrls(List<String> imageUrls) {
-        this.imageUrls = imageUrls;
-    }
-
-    public String getThumbnailUrl() {
-        return thumbnailUrl;
-    }
-
-    public void setThumbnailUrl(String thumbnailUrl) {
-        this.thumbnailUrl = thumbnailUrl;
-    }
-
-    public Double getRatingAverage() {
-        return ratingAverage;
-    }
-
-    public void setRatingAverage(Double ratingAverage) {
-        this.ratingAverage = ratingAverage;
-    }
-
-    public Long getRatingCount() {
-        return ratingCount;
-    }
-
-    public void setRatingCount(Long ratingCount) {
-        this.ratingCount = ratingCount;
-    }
-
-    public boolean isActive() {
-        return active;
-    }
-
-    public void setActive(boolean active) {
-        this.active = active;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setCreatedAt(Instant createdAt) {
-        this.createdAt = createdAt;
-    }
-
-    public Instant getUpdatedAt() {
-        return updatedAt;
-    }
-
-    public void setUpdatedAt(Instant updatedAt) {
-        this.updatedAt = updatedAt;
     }
 }
