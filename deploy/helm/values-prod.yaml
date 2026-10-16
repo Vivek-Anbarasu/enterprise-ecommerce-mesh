@@ -78,8 +78,39 @@ infrastructure:
     uri: ""
 
 services:
+  # Every service below that depends on common-security validates the forwarded
+  # token against this directory, so it has to be set for all of them - not just
+  # the gateway and BFF. The value is identical across the mesh by design: they
+  # all pin issuer-uri to one directory, so there is exactly one place to get it
+  # wrong. A service left unset here crash-loops at startup naming the missing
+  # value, rather than starting up and rejecting every authenticated request.
+  #
+  # Supply it with --set for all of them in one go, e.g.
+  #
+  #   for s in product-catalog review-rating ai-orchestrator order payment \
+  #            inventory shopping-cart customer; do
+  #     --set services.$s-service.extraEnv.ENTRA_TENANT_ID=<directory-id>
+  #   done
+  #
+  # or from an environment-specific values file kept out of source control. It
+  # identifies a real Entra directory, which is why it is not committed.
+
   api-gateway:
     replicas: 3
+    extraEnv:
+      # Same directory as the bff-service below, and it must be the same: the
+      # gateway pins issuer-uri to this tenant, so a mismatch means it rejects
+      # every token the BFF mints. Left empty here rather than committed, because
+      # this identifies a real Entra directory. Supply it with --set or from an
+      # environment-specific values file kept out of source control:
+      #
+      #   --set services.api-gateway.extraEnv.ENTRA_TENANT_ID=<directory-id>
+      #
+      # JwtValidationSafetyCheck refuses to start the pod if this is empty or still
+      # a REPLACE_ placeholder while the entra profile is active, so leaving it
+      # unset is a crash-loop with an explanatory message rather than a gateway
+      # that quietly rejects the whole world's tokens.
+      ENTRA_TENANT_ID: ""
 
   bff-service:
     replicas: 4
@@ -106,9 +137,34 @@ services:
       # so it is the knob to turn down if the threat model calls for it.
       SESSION_TIMEOUT: "30m"
 
+  product-catalog-service:
+    extraEnv:
+      ENTRA_TENANT_ID: ""
+
+  review-rating-service:
+    extraEnv:
+      ENTRA_TENANT_ID: ""
+
+  ai-orchestrator-service:
+    extraEnv:
+      ENTRA_TENANT_ID: ""
+
+  shopping-cart-service:
+    extraEnv:
+      ENTRA_TENANT_ID: ""
+
+  customer-service:
+    extraEnv:
+      ENTRA_TENANT_ID: ""
+
+  inventory-service:
+    extraEnv:
+      ENTRA_TENANT_ID: ""
+
   order-service:
     replicas: 4
     extraEnv:
+      ENTRA_TENANT_ID: ""
       # 15 minutes is long enough for a shopper to complete payment and short
       # enough that abandoned holds release quickly under peak load.
       RESERVATION_TTL_SECONDS: "900"
@@ -117,6 +173,7 @@ services:
   payment-service:
     replicas: 4
     extraEnv:
+      ENTRA_TENANT_ID: ""
       # MUST be overridden here. The stub authorises any non-decline token and
       # must never reach production; the service refuses to start otherwise.
       PAYMENT_GATEWAY: production

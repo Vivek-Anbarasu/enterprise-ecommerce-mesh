@@ -127,7 +127,17 @@ services:
       read:  { replenishRate: 200, burstCapacity: 400 }
       write: { replenishRate: 50,  burstCapacity: 100 }
       order: { replenishRate: 20,  burstCapacity: 40 }
-    extraEnv: {}
+    # `entra` carries the JWT decoder (issuer-uri + jwk-set-uri). Without it the
+    # gateway starts but accepts no bearer tokens at all: every authenticated
+    # route 401s while probes stay green. JwtValidationSafetyCheck turns that
+    # into a startup failure in any production-like environment, so if this list
+    # loses `entra` the pods crash-loop and say why, rather than serving nothing.
+    profiles: ["production", "entra"]
+    extraEnv:
+      # Directory (tenant) id of the Entra app registration the BFF mints tokens
+      # for. Must be the SAME tenant for both services: the gateway pins
+      # issuer-uri to it, so a mismatch is a closed door rather than a silent one.
+      ENTRA_TENANT_ID: "REPLACE_WITH_ENTRA_DIRECTORY_TENANT_ID"
 
   bff-service:
     enabled: true
@@ -190,7 +200,17 @@ services:
     resources:
       requests: { cpu: 250m, memory: 512Mi }
       limits: { cpu: "1", memory: 1Gi }
-    extraEnv: {}
+    # `entra` is what supplies the JwtDecoder, so the token this service receives
+    # from the gateway is validated rather than trusted. MeshJwtValidationSafetyCheck
+    # fails the pod at startup if `production` is active without a decoder, so
+    # dropping `entra` here crash-loops the deployment instead of silently serving
+    # 401s to every authenticated request.
+    profiles: ["production", "entra"]
+    extraEnv:
+      # Directory (tenant) id of the Entra app registration. Must be the SAME
+      # tenant for every service in the mesh: the gateway pins its issuer to it,
+      # so a mismatch is a closed door rather than a silent one.
+      ENTRA_TENANT_ID: "REPLACE_WITH_ENTRA_DIRECTORY_TENANT_ID"
 
   review-rating-service:
     enabled: true
@@ -204,7 +224,9 @@ services:
     resources:
       requests: { cpu: 200m, memory: 384Mi }
       limits: { cpu: 750m, memory: 768Mi }
-    extraEnv: {}
+    profiles: ["production", "entra"]
+    extraEnv:
+      ENTRA_TENANT_ID: "REPLACE_WITH_ENTRA_DIRECTORY_TENANT_ID"
 
   ai-orchestrator-service:
     enabled: true
@@ -218,7 +240,9 @@ services:
     resources:
       requests: { cpu: 200m, memory: 512Mi }
       limits: { cpu: "1", memory: 1Gi }
+    profiles: ["production", "entra"]
     extraEnv:
+      ENTRA_TENANT_ID: "REPLACE_WITH_ENTRA_DIRECTORY_TENANT_ID"
       AI_PROVIDER: none
 
   order-service:
@@ -240,7 +264,9 @@ services:
     resources:
       requests: { cpu: 400m, memory: 768Mi }
       limits: { cpu: "2", memory: 1536Mi }
+    profiles: ["production", "entra"]
     extraEnv:
+      ENTRA_TENANT_ID: "REPLACE_WITH_ENTRA_DIRECTORY_TENANT_ID"
       RESERVATION_TTL_SECONDS: "900"
 
   payment-service:
@@ -258,6 +284,7 @@ services:
       requests: { cpu: 300m, memory: 512Mi }
       limits: { cpu: "1", memory: 1Gi }
     extraEnv:
+      ENTRA_TENANT_ID: "REPLACE_WITH_ENTRA_DIRECTORY_TENANT_ID"
       # MUST be overridden in production; the stub authorises anything.
       PAYMENT_GATEWAY: stub
 
@@ -272,7 +299,9 @@ services:
     resources:
       requests: { cpu: 350m, memory: 640Mi }
       limits: { cpu: "2", memory: 1280Mi }
+    profiles: ["production", "entra"]
     extraEnv:
+      ENTRA_TENANT_ID: "REPLACE_WITH_ENTRA_DIRECTORY_TENANT_ID"
       SWEEPER_INTERVAL_MS: "60000"
 
   shopping-cart-service:
@@ -285,7 +314,9 @@ services:
     resources:
       requests: { cpu: 150m, memory: 256Mi }
       limits: { cpu: 500m, memory: 512Mi }
+    profiles: ["production", "entra"]
     extraEnv:
+      ENTRA_TENANT_ID: "REPLACE_WITH_ENTRA_DIRECTORY_TENANT_ID"
       CART_TTL_MINUTES: "20160"
 
   customer-service:
@@ -299,7 +330,9 @@ services:
     resources:
       requests: { cpu: 200m, memory: 384Mi }
       limits: { cpu: 750m, memory: 768Mi }
-    extraEnv: {}
+    profiles: ["production", "entra"]
+    extraEnv:
+      ENTRA_TENANT_ID: "REPLACE_WITH_ENTRA_DIRECTORY_TENANT_ID"
 
   notification-service:
     enabled: true

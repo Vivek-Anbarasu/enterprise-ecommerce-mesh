@@ -1,0 +1,38 @@
+# Entra ID as the gateway's token issuer.
+#
+# Activate with SPRING_PROFILES_ACTIVE=production,entra. It is not in application.yml
+# because an entry whose value is empty is a startup failure in Spring Boot, not an
+# absent configuration - see the comment there. Keeping it in its own profile is
+# what lets this service boot with no identity provider configured at all, which is
+# what local development and the test suite rely on.
+#
+# Required environment:
+#   ENTRA_TENANT_ID   directory (tenant) id
+#
+# Deliberately NOT set here:
+#   ENTRA_CLIENT_ID / ENTRA_CLIENT_SECRET  The gateway is a resource server. It
+#     validates tokens other services and the BFF minted; it never obtains one.
+#     Nothing about the client registration belongs in this file.
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Both are needed, and they do different jobs. `jwk-set-uri` supplies the
+          # signing keys; `issuer-uri` is what makes the decoder reject a token
+          # whose `iss` claim is not this directory.
+          #
+          # Setting jwk-set-uri alone is the dangerous shortcut, because Entra
+          # signs every tenant's tokens with a shared key set. Signature
+          # verification alone would then accept a token minted by ANY Azure AD
+          # tenant - and GatewaySecurityConfig turns that token's `tenant_id`
+          # claim into a TENANT_* authority. Cross-tenant escalation, wearing a
+          # perfectly valid signature.
+          issuer-uri: https://login.microsoftonline.com/${ENTRA_TENANT_ID}/v2.0
+          # Pinned alongside issuer-uri rather than discovered from it. Discovery
+          # on every cold start is both a latency spike and a dependency on Entra
+          # being reachable before the pod can serve its first request; pinning
+          # also means a compromised or redirected discovery endpoint cannot
+          # substitute a key set. The gateway keeps the cached keys and refreshes
+          # them on rotation either way, so this costs nothing in key freshness.
+          jwk-set-uri: https://login.microsoftonline.com/${ENTRA_TENANT_ID}/discovery/v2.0/keys
