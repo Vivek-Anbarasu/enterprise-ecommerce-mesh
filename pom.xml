@@ -22,6 +22,11 @@
         <testcontainers.version>2.0.5</testcontainers.version>
         <springdoc.version>3.1.1</springdoc.version>
         <jib.version>3.5.2</jib.version>
+        <!-- Semantic search, used only by ai-orchestrator-service. Declared in that
+             module's pom rather than dependencyManagement here, because no other
+             module depends on them. -->
+        <onnxruntime.version>1.20.0</onnxruntime.version>
+        <djl.version>0.31.1</djl.version>
         <!-- Overrides the version Spring Boot manages, which is 1.18.46.
              1.18.46 crashes on JDK 27: Lombok's ShadowClassLoader loads javac
              internals reflectively, and com.sun.tools.javac.tree.EndPosTable was

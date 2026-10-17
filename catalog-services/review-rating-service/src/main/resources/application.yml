@@ -17,13 +17,9 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       timeout: 1s
-  cache:
-    type: redis
-  kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
-    consumer:
-      group-id: ${KAFKA_GROUP_ID:review-rating-service}
-      auto-offset-reset: earliest
+  # No kafka block on purpose: this service has no @KafkaListener and no EventPublisher.
+  # Reviews are written through the REST API, not as events. See the note in
+  # ai-orchestrator-service on why the block is absent rather than merely unused.
 
 mesh:
   environment: ${MESH_ENV:local}

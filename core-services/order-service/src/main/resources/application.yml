@@ -42,9 +42,6 @@ spring:
     locations: classpath:db/migration
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
-    consumer:
-      group-id: ${KAFKA_GROUP_ID:order-service}
-      auto-offset-reset: earliest
     ssl:
       trust-store-location: ${KAFKA_TRUSTSTORE_LOCATION:}
 

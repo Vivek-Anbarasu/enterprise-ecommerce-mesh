@@ -27,6 +27,15 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
+        <!-- Provides RestClientAutoConfiguration, and therefore the RestClient.Builder
+             bean that HttpPaymentGateway injects. Not pulled in transitively by
+             spring-boot-starter-web here: this module also pulls starter-webflux, and
+             the resulting tree leaves it out. Declared explicitly so the HTTP gateway
+             cannot fail at startup with a missing-bean error naming no real cause. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-restclient</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
@@ -59,10 +68,6 @@
         <dependency>
             <groupId>com.enterprise.mesh</groupId>
             <artifactId>common-observability</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.enterprise.mesh</groupId>
-            <artifactId>common-messaging</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springdoc</groupId>

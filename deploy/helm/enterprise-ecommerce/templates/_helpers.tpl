@@ -79,6 +79,20 @@ service-specific extras in .service.extraEnv.
   value: {{ .root.Values.infrastructure.redis.port | quote }}
 - name: KAFKA_BOOTSTRAP_SERVERS
   value: {{ .root.Values.infrastructure.kafka.bootstrapServers | quote }}
+{{- /*
+  Tenant allow-list, as a comma-delimited value Spring binds to
+  mesh.tenant.allowed. Emitted only when non-empty so that an empty list stays
+  empty rather than arriving as [""], which would allow-list the empty string.
+*/}}
+{{- $tenantAllowed := .root.Values.global.mesh.tenantAllowed | default (list) }}
+{{- if $tenantAllowed }}
+- name: MESH_TENANT_ALLOWED
+  value: {{ join "," $tenantAllowed | quote }}
+{{- end }}
+{{- if .root.Values.global.mesh.tenantAllowAll }}
+- name: MESH_TENANT_ALLOW_ALL
+  value: "true"
+{{- end }}
 {{- if .service.database }}
 - name: DB_URL
   valueFrom:

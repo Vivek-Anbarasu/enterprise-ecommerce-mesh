@@ -14,6 +14,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,6 +27,24 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+/**
+ * Catalogue browse and management.
+ *
+ * <p><b>Reads are anonymous by design; writes are role-guarded.</b> The gateway permits
+ * {@code GET /api/products/**} without a token, and TenantContextFilter falls back to the
+ * {@code public} tenant, so the three reads carry no {@code @PreAuthorize}.
+ *
+ * <p>The three mutating mappings originally carried none either, which was not the same
+ * decision: they sat behind {@code anyRequest().authenticated()} alone, and that
+ * distinguishes a token from no token but not one role from another. Any valid token could
+ * create, replace or deactivate catalogue products - including the internal
+ * {@code SERVICE} role the gateway holds when proxying a shopper's browse.
+ *
+ * <p>{@code ADMIN} is the catalogue owner. {@code SERVICE} covers the mesh-internal case
+ * where a service writes on a shopper's behalf. A shopper's own {@code CUSTOMER} token
+ * deliberately cannot: a customer must not be able to edit the catalogue they are
+ * shopping in.
+ */
 @RestController
 @RequestMapping("/api/products")
 @Tag(name = "Catalogue", description = "Product browse and management")
@@ -62,6 +81,7 @@ public class ProductController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('ADMIN','SERVICE')")
     @Operation(summary = "Create a product")
     public ResponseEntity<Product> create(@RequestBody Product product) {
         Product saved = catalogService.create(product);
@@ -71,6 +91,7 @@ public class ProductController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','SERVICE')")
     @Operation(summary = "Replace a product")
     public Product update(@PathVariable String id,
                           @RequestBody Product product,
@@ -79,6 +100,7 @@ public class ProductController {
     }
 
     @PostMapping("/sku/{sku}/deactivate")
+    @PreAuthorize("hasAnyRole('ADMIN','SERVICE')")
     @Operation(summary = "Soft delete a product, preserving order history")
     public ResponseEntity<Void> deactivate(@PathVariable String sku,
                                            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantId) {

@@ -57,20 +57,10 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       timeout: 1s
-  cache:
-    type: redis
-    redis:
-      time-to-live: 30s
-      cache-null-values: false
-  kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
-    consumer:
-      group-id: ${KAFKA_GROUP_ID:inventory-service}
-      auto-offset-reset: earliest
-    ssl:
-      # Provided by a mounted secret when TLS to the broker is enabled.
-      trust-store-location: ${KAFKA_TRUSTSTORE_LOCATION:}
-      trust-store-password: ${KAFKA_TRUSTSTORE_PASSWORD:}
+  # No kafka block on purpose: this service has no @KafkaListener and no EventPublisher,
+  # and no longer depends on common-messaging. Reservations are held in its own
+  # PostgreSQL schema, not on a broker. See the note in ai-orchestrator-service on why
+  # the block is absent rather than merely unused.
 
 mesh:
   environment: ${MESH_ENV:local}

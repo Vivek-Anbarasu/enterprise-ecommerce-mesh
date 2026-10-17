@@ -55,10 +55,72 @@ class PaymentGatewaySafetyCheckTest {
     }
 
     @Test
-    @DisplayName("a real gateway is allowed in production")
+    @DisplayName("a real gateway is allowed in production once the provider is configured")
     void allowsRealGatewayInProduction() {
-        assertThatCode(() -> new PaymentGatewaySafetyCheck(env("production", "prod")).afterPropertiesSet())
+        MockEnvironment environment = httpGatewayEnv("prod");
+        environment.setProperty("mesh.payment.provider.base-url", "https://payments.example");
+        environment.setProperty("mesh.payment.provider.api-key", "sk_live_real_key");
+
+        assertThatCode(() -> new PaymentGatewaySafetyCheck(environment).afterPropertiesSet())
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("an unknown gateway mode is rejected by name instead of failing as a missing bean")
+    void rejectsUnknownMode() {
+        // Previously this produced UnsatisfiedDependency: no bean of type PaymentGateway,
+        // which points at the dependency wiring rather than the property that is wrong.
+        assertThatThrownBy(() -> new PaymentGatewaySafetyCheck(env("strip", "prod")).afterPropertiesSet())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Unknown mesh.payment.gateway 'strip'")
+                .hasMessageContaining("stub")
+                .hasMessageContaining("http");
+    }
+
+    @Test
+    @DisplayName("the gateway mode is matched case-insensitively")
+    void modeIsCaseInsensitive() {
+        MockEnvironment environment = httpGatewayEnv("prod");
+        environment.setProperty("mesh.payment.provider.base-url", "https://payments.example");
+        environment.setProperty("mesh.payment.provider.api-key", "sk_live_real_key");
+
+        assertThatCode(() -> new PaymentGatewaySafetyCheck(environment).afterPropertiesSet())
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("the http gateway is rejected without a provider base url")
+    void httpRequiresBaseUrl() {
+        MockEnvironment environment = httpGatewayEnv("prod");
+        environment.setProperty("mesh.payment.provider.api-key", "sk_live_real_key");
+
+        assertThatThrownBy(() -> new PaymentGatewaySafetyCheck(environment).afterPropertiesSet())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("base-url");
+    }
+
+    @Test
+    @DisplayName("the http gateway is rejected without an api key")
+    void httpRequiresApiKey() {
+        MockEnvironment environment = httpGatewayEnv("prod");
+        environment.setProperty("mesh.payment.provider.base-url", "https://payments.example");
+
+        assertThatThrownBy(() -> new PaymentGatewaySafetyCheck(environment).afterPropertiesSet())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("api-key");
+    }
+
+    @Test
+    @DisplayName("a still-placeholder provider credential is rejected")
+    void httpRejectsPlaceholderCredential() {
+        MockEnvironment environment = httpGatewayEnv("prod");
+        environment.setProperty("mesh.payment.provider.base-url", "https://payments.example");
+        environment.setProperty("mesh.payment.provider.api-key",
+                "REPLACE_WITH_PROVIDER_API_KEY");
+
+        assertThatThrownBy(() -> new PaymentGatewaySafetyCheck(environment).afterPropertiesSet())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("placeholder");
     }
 
     @Test
@@ -76,5 +138,12 @@ class PaymentGatewaySafetyCheckTest {
     void productionProfileAloneIsEnough() {
         assertThatThrownBy(() -> new PaymentGatewaySafetyCheck(env("stub", "", "production")).afterPropertiesSet())
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    private static MockEnvironment httpGatewayEnv(String meshEnv) {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setProperty("mesh.payment.gateway", "http");
+        environment.setProperty("mesh.environment", meshEnv);
+        return environment;
     }
 }

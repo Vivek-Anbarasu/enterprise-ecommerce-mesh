@@ -28,7 +28,20 @@ import org.springframework.cache.annotation.Cacheable;
 @RequiredArgsConstructor
 public class ProductCatalogService {
 
-    /** Short TTL: enough to absorb browse bursts, short enough to limit staleness. */
+    /**
+     * Short TTL: enough to absorb browse bursts, short enough to limit staleness.
+     *
+     * <p>Not decorative, and deliberately not a second source of truth. This constant
+     * used to be declared and never referenced while nothing configured a TTL at all,
+     * so every cached product lived in Redis indefinitely and eviction was the only
+     * invalidation. The effective value now lives in
+     * {@code spring.cache.redis.time-to-live} in {@code application.yml}, because that
+     * is the only place Spring can read a TTL from.
+     *
+     * <p>{@code ProductCatalogCacheConfigurationTest} asserts the running TTL equals
+     * this constant, so the two cannot drift apart again: change one, change both, and
+     * the build will say so if you did not.
+     */
     public static final Duration PRODUCT_CACHE_TTL = Duration.ofMinutes(5);
 
     private final ProductRepository productRepository;

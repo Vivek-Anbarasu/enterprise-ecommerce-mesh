@@ -48,7 +48,23 @@ public class MeshSecurityProperties {
         /** Default used only when {@code required=false}. */
         private String defaultTenant = "public";
 
-        /** Tenants allow-listed for this deployment; empty means allow all. */
+        /**
+         * Tenants allow-listed for this deployment; empty means allow all.
+         *
+         * <p>Empty also means "not configured yet", which is why a production-like
+         * environment refuses to start on it — see {@code TenantAllowListSafetyCheck}.
+         * Set {@link #allowAll} to assert openness deliberately.
+         */
         private List<String> allowed = List.of();
+
+        /**
+         * Asserts that this deployment really should accept every tenant, so an empty
+         * {@link #allowed} is a decision rather than an omission.
+         *
+         * <p>Deliberately not the default. "Nobody has filled this in yet" and "we
+         * genuinely serve all tenants" are the same empty list, and only one of them is
+         * something anybody chose.
+         */
+        private boolean allowAll = false;
     }
 }

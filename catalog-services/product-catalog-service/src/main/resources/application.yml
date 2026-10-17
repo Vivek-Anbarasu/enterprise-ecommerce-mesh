@@ -26,6 +26,12 @@ spring:
           min-idle: 8
   cache:
     type: redis
+    # NOTE: the RedisCacheManager this service uses is built by hand in
+    # ProductCatalogApplication, which replaces Boot's auto-configured one entirely.
+    # Everything below spring.cache.* is therefore inert here - TTLs, key prefixes
+    # and cache names included. They are configured in Java, where the reason for
+    # each is visible. Setting spring.cache.redis.time-to-live or .key-prefix in
+    # this file would look effective and change nothing.
   elasticsearch:
     uris: ${ELASTICSEARCH_URIS:}
 

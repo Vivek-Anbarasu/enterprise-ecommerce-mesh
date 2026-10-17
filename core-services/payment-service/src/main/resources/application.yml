@@ -29,11 +29,10 @@ spring:
   flyway:
     enabled: true
     baseline-on-migrate: true
-  kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
-    consumer:
-      group-id: ${KAFKA_GROUP_ID:payment-service}
-      auto-offset-reset: earliest
+  # No kafka block on purpose: this service has no @KafkaListener and no EventPublisher.
+  # Payment calls are synchronous REST from order-service, deliberately - a checkout
+  # must know whether it was authorised, not discover it later. See the note in
+  # ai-orchestrator-service on why the block is absent rather than merely unused.
 
 mesh:
   environment: ${MESH_ENV:local}
@@ -42,9 +41,15 @@ mesh:
     required: false
     default-tenant: public
   payment:
-    # 'stub' is for local/dev only. Production must set this to the real
-    # provider integration and must never inherit the default.
+    # 'stub' is for local/dev only and simulates payments without taking money.
+    # 'http' is the real provider integration (see HttpPaymentGateway for the
+    # contract it speaks). Anything else fails startup by name.
     gateway: ${PAYMENT_GATEWAY:stub}
+    provider:
+      # Required when gateway=http. Supplied from a Kubernetes secret; the api key
+      # must never be committed to values.yaml.
+      base-url: ${PAYMENT_PROVIDER_BASE_URL:}
+      api-key: ${PAYMENT_PROVIDER_API_KEY:}
   clients:
     order: ${ORDER_URI:http://order-service:8082}
 
