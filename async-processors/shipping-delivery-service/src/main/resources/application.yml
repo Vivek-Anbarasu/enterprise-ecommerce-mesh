@@ -29,7 +29,10 @@ spring:
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
-      group-id: ${KAFKA_GROUP_ID:shipping-service}
+      # No group-id here on purpose: @KafkaListener(groupId = ...) on
+      # OrderFulfilmentListener takes precedence over spring.kafka.consumer.group-id,
+      # so a value set here would be silently ignored. The group that actually owns
+      # these offsets is mesh.shipping.consumer-group, on the annotation.
       auto-offset-reset: earliest
       enable-auto-commit: false
     ssl:
@@ -38,6 +41,12 @@ spring:
 mesh:
   environment: ${MESH_ENV:local}
   tier: async
+  tenant:
+    # Carrier webhook tokens may carry no tenant_id claim, and the default
+    # (required: true) would answer those with 400 before @PreAuthorize ever
+    # runs. Matches every other service that consumes common-security.
+    required: false
+    default-tenant: public
   messaging:
     consumer-concurrency: ${KAFKA_CONCURRENCY:2}
   shipping:

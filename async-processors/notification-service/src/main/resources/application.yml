@@ -20,7 +20,10 @@ spring:
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
-      group-id: ${KAFKA_GROUP_ID:notification-service}
+      # No group-id here on purpose: @KafkaListener(groupId = ...) on
+      # OrderEventListener takes precedence over spring.kafka.consumer.group-id, so
+      # a value set here would be silently ignored. The group that actually owns
+      # these offsets is mesh.notification.consumer-group, on the annotation.
       auto-offset-reset: earliest
       # Do not auto-commit: offsets advance only after the handler returns, so a
       # crash mid-dispatch replays the message rather than losing it.

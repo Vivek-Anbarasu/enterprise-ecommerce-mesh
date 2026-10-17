@@ -49,14 +49,18 @@
             <artifactId>common-observability</artifactId>
         </dependency>
         <!-- Exposes carrier webhooks, so it authenticates inbound callers
-             rather than trusting an open network path. -->
+             rather than trusting an open network path.
+
+             common-security supplies the whole baseline: the JwtDecoder built
+             from the `entra` profile, @EnableMethodSecurity (without which the
+             four @PreAuthorize annotations on ShippingController are inert),
+             tenant resolution and MeshJwtValidationSafetyCheck. It pulls in
+             spring-boot-starter-security and -oauth2-resource-server itself, so
+             declaring them here separately would only invite the version skew
+             that comes from owning the pair. -->
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-security</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+            <groupId>com.enterprise.mesh</groupId>
+            <artifactId>common-security</artifactId>
         </dependency>
         <dependency>
             <groupId>com.enterprise.mesh</groupId>

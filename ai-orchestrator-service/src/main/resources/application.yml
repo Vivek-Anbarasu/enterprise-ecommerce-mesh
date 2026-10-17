@@ -22,11 +22,53 @@ spring:
       timeout: 1s
   cache:
     type: redis
+    # spring.cache.cache-names, NOT spring.cache.redis.cache-names: the latter does
+    # not bind, so a cache declared there is silently ignored and the cache is
+    # created on first use with whatever defaults apply. Declaring it here means it
+    # is an initial configuration - so the TTL and prefix below provably apply to
+    # it, and a typo in a cache name is a startup failure rather than a silent
+    # second cache.
+    cache-names:
+      - customer-affinity
+      # SKU -> category, resolved from the catalogue when a purchase event arrives.
+      # A separate cache because it holds a different shape and a different
+      # lifetime: catalogue categories change on a merchandising timescale rather
+      # than a behavioural one, so this can safely outlive the affinity entries.
+      - sku-category
+      # Category -> products, fetched per shopper's preferred categories to give
+      # RecommendationService.rank something to score. A separate cache from
+      # customer-affinity because the two have opposite lifetimes: affinities are
+      # behavioural and evicted on every interaction, while this only changes when a
+      # merchant files a product. Collapsing them would mean a purchase evicts
+      # catalogue data (wasteful) or catalogue staleness pins a behavioural profile
+      # (a privacy problem). Not evicted by RecommendationService.forget for the same
+      # reason.
+      - sku-candidates
+    redis:
+      # Affinity weights move slowly, so a ten minute ceiling is invisible to a
+      # shopper and bounds staleness to something nobody notices.
+      #
+      # This is a privacy control as much as a freshness one. The cache holds a
+      # behavioural profile, so if eviction is ever missed - Redis blip, a
+      # mutator that forgets, a future code path that writes without evicting -
+      # an unbounded TTL would leave that profile in Redis indefinitely. Right to
+      # be forgotten is satisfied immediately by the @CacheEvict on
+      # RecommendationService.forget; this bounds the case where that does not
+      # happen. Without it, entries live forever and the only invalidation is
+      # @CacheEvict.
+      time-to-live: ${AI_CACHE_TTL:10m}
+      # Namespaces this service's keys. Several mesh services share one Redis
+      # instance, so two services choosing the same cache name would otherwise
+      # read and evict each other's entries.
+      key-prefix: "ai-orchestrator-service::"
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
-    consumer:
-      group-id: ${KAFKA_GROUP_ID:ai-orchestrator}
-      auto-offset-reset: earliest
+    ssl:
+      trust-store-location: ${KAFKA_TRUSTSTORE_LOCATION:}
+      trust-store-password: ${KAFKA_TRUSTSTORE_PASSWORD:}
+  # No spring.kafka.consumer.group-id: OrderEventListener declares groupId on the
+  # annotation, which takes precedence, so a value set there would be silently
+  # ignored. The group that owns these offsets is mesh.ai.consumer-group.
 
 mesh:
   environment: ${MESH_ENV:local}
@@ -37,10 +79,43 @@ mesh:
   clients:
     catalog: ${CATALOG_URI:http://product-catalog-service:8085}
   ai:
-    # When no model provider is configured the service falls back to the
-    # transparent heuristic in RecommendationService.
+    # Ranking implementation. Only 'none' is honoured - no model provider is wired
+    # in this service, so ranking is always the transparent heuristic in
+    # RecommendationService. Any other value is bound and ignored, and logs a
+    # warning at startup rather than failing, so a deployment is not blocked on a
+    # key that was never going to change behaviour. Bound by MeshAiProperties.
     provider: ${AI_PROVIDER:none}
+    # Ceiling on recommendations, applied to both the preference list and the ranked
+    # output. Validated at startup: must be >= 1, because the value reaches
+    # Stream.limit() and a negative one throws on the storefront home page.
     max-recommendations: ${AI_MAX_RECOMMENDATIONS:20}
+  # Semantic product search. Separate from the keys above because an embedding model
+  # is not a "provider" - it answers "what is this text about", not "what suits this
+  # shopper". Folding them together would let a future ranking provider change imply
+  # a different search model.
+  semantic:
+    # Directory holding model.onnx and tokenizer.json (~270MB, NOT in the jar). The
+    # service starts without it: /api/ai/search reports 503, and recommendations,
+    # interactions and profile erasure are unaffected. Mount this as a volume or bake
+    # it into the image - do not fetch it at startup.
+    model-dir: ${AI_SEMANTIC_MODEL_DIR:models/nomic-embed-text}
+    top-k: ${AI_SEMANTIC_TOP_K:20}
+    # Cosine similarity of arbitrary product text against a shopper's query is often
+    # near zero. This drops the tail so "nothing matched" returns an empty list rather
+    # than a confident ranking of noise.
+    minimum-score: ${AI_SEMANTIC_MIN_SCORE:0.2}
+    # nomic was trained with task prefixes. Omitting them does not error - it returns
+    # results that are quietly worse, because query and document land in different
+    # regions of the space. Do not change these without reindexing.
+    model-id: nomic-embed-text
+    document-prefix: "search_document: "
+    query-prefix: "search_query: "
+    # The Kafka consumer group that owns offsets for order.events. Declared as a mesh
+    # property because @KafkaListener(groupId = ...) overrides
+    # spring.kafka.consumer.group-id, so a value set there would be silently ignored -
+    # and reading the effective group off the yml was exactly the mistake that made the
+    # previous value misleading.
+    consumer-group: ${MESH_AI_CONSUMER_GROUP:ai-orchestrator}
 
 management:
   endpoints:

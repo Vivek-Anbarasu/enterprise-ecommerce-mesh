@@ -183,6 +183,19 @@ public class MeshSecurityAutoConfiguration {
         return new MeshJwtValidationSafetyCheck(environment, jwtDecoderProvider);
     }
 
+    /**
+     * Refuses a production-like startup with no tenant allow-list.
+     *
+     * @see TenantAllowListSafetyCheck
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public TenantAllowListSafetyCheck tenantAllowListSafetyCheck(
+            Environment environment,
+            MeshSecurityProperties properties) {
+        return new TenantAllowListSafetyCheck(environment, properties);
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public ProblemDetailAuthenticationEntryPoint meshAuthenticationEntryPoint(ObjectMapper objectMapper) {

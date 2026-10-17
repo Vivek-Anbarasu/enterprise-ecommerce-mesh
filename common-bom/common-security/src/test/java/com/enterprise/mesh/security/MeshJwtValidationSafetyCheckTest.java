@@ -72,8 +72,13 @@ class MeshJwtValidationSafetyCheckTest {
     void startsWhenADecoderIsPresent() {
         // A no-op stub is enough: the check asks only whether a decoder exists,
         // never whether one is reachable, so a test must not need a real issuer.
+        //
+        // mesh.tenant.allow-all keeps TenantAllowListSafetyCheck out of the way. The
+        // two checks are independent deployment guards, and this test is about the
+        // JWT one; without it the context would fail on an unrelated guard and the
+        // assertion would pass for the wrong reason.
         runner.withBean(JwtDecoder.class, () -> token -> { throw new IllegalStateException("stub"); })
-                .withPropertyValues("mesh.environment=production")
+                .withPropertyValues("mesh.environment=production", "mesh.tenant.allow-all=true")
                 .run(context -> assertThat(context).hasNotFailed());
     }
 

@@ -15,6 +15,29 @@ global:
   # Shared by every service; used for rate limiting and tenant resolution.
   tenantDefault: public
 
+  # Tenants this deployment serves. TenantContextFilter rejects anything else with
+  # 403 before it reaches business logic.
+  #
+  # Left empty on purpose: the real tenant ids are environment-specific and are not
+  # knowable from this repo. An empty list combined with `tenantAllowAll: true`
+  # below means "no restriction at the filter-chain boundary" - a decision recorded
+  # here rather than an omission. An empty list with `tenantAllowAll: false` is the
+  # one combination that is refused: TenantAllowListSafetyCheck refuses to start
+  # every service in a production-like environment, because "nobody configured this"
+  # and "serve every tenant" are the same value and only one is a decision.
+  #
+  # Populate per environment, e.g. -f values-prod.yaml, or:
+  #   --set global.mesh.tenantAllowed={acme,globex}
+  #
+  # Note when you do populate it: every service sets mesh.tenant.required=false with
+  # default-tenant=public, so an anonymous request resolves to `public` and is then
+  # checked against this list. A list of {acme,globex} would 403 the whole browsable
+  # storefront. Include `public` unless the deployment is deliberately closed to
+  # anonymous traffic, or set mesh.tenant.required=true per service as well.
+  mesh:
+    tenantAllowed: []
+    tenantAllowAll: true
+
 # ---------------------------------------------------------------------------
 # Istio Ambient mode: ztunnel (shared L4) + optional waypoint (shared L7).
 #
@@ -283,9 +306,15 @@ services:
     resources:
       requests: { cpu: 300m, memory: 512Mi }
       limits: { cpu: "1", memory: 1Gi }
+    # `entra` is what makes common-security build its JwtDecoder. Without it this
+    # pod has no way to validate the token the gateway forwards, and because
+    # MESH_ENV is aks-prod, MeshJwtValidationSafetyCheck refuses to start - so it
+    # crash-loops rather than serving. Same reason as every other service here.
+    profiles: ["production", "entra"]
     extraEnv:
       ENTRA_TENANT_ID: "REPLACE_WITH_ENTRA_DIRECTORY_TENANT_ID"
       # MUST be overridden in production; the stub authorises anything.
+      # PaymentGatewaySafetyCheck also refuses to start while this is `stub`.
       PAYMENT_GATEWAY: stub
 
   inventory-service:
@@ -368,7 +397,13 @@ services:
     resources:
       requests: { cpu: 200m, memory: 384Mi }
       limits: { cpu: 750m, memory: 768Mi }
-    extraEnv: {}
+    # This service exposes a real HTTP surface to carrier webhooks, so it is not
+    # a headless worker and it must validate the forwarded token itself rather
+    # than trusting the hop. `entra` builds the JwtDecoder; the module depends
+    # on common-security for @EnableMethodSecurity and the startup safety check.
+    profiles: ["production", "entra"]
+    extraEnv:
+      ENTRA_TENANT_ID: "REPLACE_WITH_ENTRA_DIRECTORY_TENANT_ID"
 
 # ---------------------------------------------------------------------------
 # North-south edge: Azure Application Gateway for Containers (AGC).

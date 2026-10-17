@@ -27,9 +27,56 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
+        <!-- Supplies CacheAutoConfiguration, so spring.cache.type=redis actually
+             produces a CacheManager bean. Without it @EnableCaching finds no
+             manager and every @Cacheable call fails at the first invocation with
+             "No qualifying bean of type CacheManager" - which is what happened
+             here: the redis block in application.yml was inert. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-cache</artifactId>
+        </dependency>
+        <!-- Provides RestClientAutoConfiguration, and therefore the RestClient.Builder bean
+             CatalogueClient injects. Not pulled in transitively here for the same
+             reason it is not in payment-service: with starter-web and starter-webflux
+             both present, the resolved tree omits it, and the failure would be a
+             missing-bean error naming no real cause. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-restclient</artifactId>
+        </dependency>
+        <!-- Purchases arrive on the order.events topic rather than being asserted
+             by the browser. Restored deliberately: it was removed as unused, and
+             OrderEventListener is what makes it used. Do not strip it again without
+             re-checking that the listener is still there. -->
+        <dependency>
+            <groupId>com.enterprise.mesh</groupId>
+            <artifactId>common-messaging</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <!-- In-process embedding inference. Deliberately NOT a hosted API and not a
+             serving tier: nomic-embed-text is ~137M params and returns in 5-20ms on CPU,
+             so a network hop, a container and a port would cost more than the model.
+             FastEmbed is the usual tool but it is Python-only; the JVM equivalent is
+             ONNX Runtime plus the HuggingFace tokenizer (DJL) below.
+
+             Neither library is covered by the imported BOMs, and neither belongs to a
+             module other than this one, so the versions are pinned here rather than in
+             the parent's dependencyManagement. -->
+        <dependency>
+            <groupId>com.microsoft.onnxruntime</groupId>
+            <artifactId>onnxruntime</artifactId>
+            <version>${onnxruntime.version}</version>
+        </dependency>
+        <!-- nomic-embed-text is BERT-derived, so it needs a real WordPiece tokenizer.
+             DJL's port of HuggingFace tokenizers is the maintained Java option. -->
+        <dependency>
+            <groupId>ai.djl.huggingface</groupId>
+            <artifactId>tokenizers</artifactId>
+            <version>${djl.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -42,10 +89,6 @@
         <dependency>
             <groupId>com.enterprise.mesh</groupId>
             <artifactId>common-observability</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.enterprise.mesh</groupId>
-            <artifactId>common-messaging</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springdoc</groupId>

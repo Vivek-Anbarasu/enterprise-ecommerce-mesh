@@ -40,10 +40,6 @@
             <artifactId>common-observability</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.enterprise.mesh</groupId>
-            <artifactId>common-messaging</artifactId>
-        </dependency>
-        <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
         </dependency>
