@@ -13,43 +13,36 @@ import lombok.Getter;
 /**
  * Transactional outbox row.
  *
- * <p>Written in the <em>same</em> transaction as the order, then relayed to Kafka
- * by a background poller. This is what makes "order persisted" and "event
- * published" atomic in effect: without it, a crash between the two would leave a
- * paid order that no fulfilment service ever hears about.
+ * <p>Written in the <em>same</em> transaction as the order. This is what makes
+ * "order persisted" and "event published" atomic in effect: without it, a crash
+ * between the two would leave a paid order that no fulfilment service ever hears
+ * about.
  *
- * <p>Relay is at-least-once, so consumers must be idempotent on {@code event_id}.
+ * <p>Rows are inserted and never updated or deleted by the application. Debezium
+ * tails the write-ahead log and publishes each insert to Kafka, so this table is
+ * the durable hand-off point between the database transaction and the broker -
+ * there is no poller holding a claim lock, and no {@code published_at},
+ * {@code attempts} or {@code last_error} bookkeeping, because the WAL rather
+ * than a column is the record of what was emitted.
  *
- * <p><b>Read-only, deliberately.</b> {@code @Getter} only, no {@code @Setter}.
- * The relay's correctness depends on the three relay-owned columns being writable
- * only through the two methods that maintain them:
- *
- * <ul>
- *   <li>{@code publishedAt} is the leading column of
- *       {@code idx_outbox_unpublished}, which is the index the relay poller scans
- *       for work. A setter would let a caller mark an event published without
- *       clearing {@code lastError}, or set it out of band and have the poller skip
- *       an event that never reached Kafka - the precise failure the outbox exists
- *       to prevent.</li>
- *   <li>{@link #recordFailure} truncates {@code lastError} to 1023 characters so
- *       it fits its {@code varchar(1024)} column. The truncation lives in the
- *       method body and is gone the moment a setter exists, turning a long
- *       provider error into a failed relay rather than a recorded one.</li>
- *   <li>{@code attempts} is a tally incremented by {@code recordFailure}, not a
- *       value. {@link #markPublished} deliberately leaves it alone: the attempt
- *       count is what tells an operator how hard a poison event was retried.</li>
- * </ul>
+ * <p><b>Append-only, deliberately.</b> {@code @Getter} only, no {@code @Setter},
+ * and no mutator methods: once a row exists it is immutable. That is what makes
+ * the CDC contract safe. Debezium emits one event per insert, so a row that could
+ * be updated after the fact would produce a second Kafka event for a change that
+ * never happened, and downstream consumers - which are idempotent on
+ * {@code event_id} rather than on "the latest state of the row" - would have no
+ * way to tell the difference.
  *
  * <p>{@code id} and {@code eventId} are mapped {@code updatable = false} and are
  * the keys consumers deduplicate on; {@code payload} is the serialised event and
- * {@code createdAt} its ordering key. {@link #isPublished()} stays a method: it is
- * derived from {@code publishedAt}, and there is no backing field for a getter to
- * collide with.
+ * {@code createdAt} its ordering key.
+ *
+ * <p>Delivery is at-least-once, so consumers must be idempotent on
+ * {@code event_id}.
  */
 @Getter
 @Entity
 @Table(name = "outbox_events", indexes = {
-        @Index(name = "idx_outbox_unpublished", columnList = "published_at,id"),
         @Index(name = "idx_outbox_aggregate", columnList = "aggregate_id")
 })
 public class OutboxEvent {
@@ -82,29 +75,27 @@ public class OutboxEvent {
     @Column(name = "correlation_id", length = 64)
     private String correlationId;
 
-    /** JSON payload, already serialised. */
+    /**
+     * The business event on its own, already serialised.
+     *
+     * <p>Deliberately not wrapped in a metadata envelope: Debezium publishes this
+     * column verbatim as the Kafka record value, and consumers read that value as
+     * the event. Every piece of metadata needed to rebuild the event header lives
+     * in a sibling column above.
+     */
     @Column(name = "payload", nullable = false, columnDefinition = "jsonb")
     private String payload;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    @Column(name = "published_at")
-    private Instant publishedAt;
-
-    @Column(name = "attempts", nullable = false)
-    private int attempts;
-
-    @Column(name = "last_error", length = 1024)
-    private String lastError;
-
     protected OutboxEvent() {
         // required by JPA
     }
 
     public OutboxEvent(String id, String eventId, String topic, String eventType,
-                        String aggregateType, String aggregateId, String tenantId,
-                        int schemaVersion, String correlationId, String payload) {
+                       String aggregateType, String aggregateId, String tenantId,
+                       int schemaVersion, String correlationId, String payload) {
         this.id = id;
         this.eventId = eventId;
         this.topic = topic;
@@ -116,20 +107,5 @@ public class OutboxEvent {
         this.correlationId = correlationId;
         this.payload = payload;
         this.createdAt = Instant.now();
-        this.attempts = 0;
-    }
-
-    public void markPublished(Instant when) {
-        this.publishedAt = when;
-        this.lastError = null;
-    }
-
-    public void recordFailure(String error) {
-        this.attempts++;
-        this.lastError = error == null ? "unknown" : error.substring(0, Math.min(1023, error.length()));
-    }
-
-    public boolean isPublished() {
-        return publishedAt != null;
     }
 }

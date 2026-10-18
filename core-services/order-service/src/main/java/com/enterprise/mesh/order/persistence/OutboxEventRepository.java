@@ -1,38 +1,16 @@
 package com.enterprise.mesh.order.persistence;
 
-import java.time.Instant;
-import java.util.List;
-
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 
+/**
+ * Write-only repository for the transactional outbox.
+ *
+ * <p>Deliberately declares no queries beyond those inherited from
+ * {@link JpaRepository}: delivery is Debezium's job, so nothing in this
+ * application ever reads the table back. The relay's {@code FOR UPDATE SKIP
+ * LOCKED} claim query, its poison-row scan and its unpublished-count are all
+ * gone with the relay, and adding read queries here would only invite a second
+ * reader that competes with Debezium for the WAL.
+ */
 public interface OutboxEventRepository extends JpaRepository<OutboxEvent, String> {
-
-    /**
-     * Oldest unpublished events first.
-     *
-     * <p>{@code FOR UPDATE SKIP LOCKED} is what makes this safe to run from
-     * every replica: concurrent pollers take disjoint rows instead of blocking
-     * on each other or double-publishing the same event.
-     */
-    @Query(value = """
-            SELECT * FROM outbox_events
-            WHERE published_at IS NULL
-            ORDER BY created_at ASC
-            LIMIT :limit
-            FOR UPDATE SKIP LOCKED
-            """, nativeQuery = true)
-    List<OutboxEvent> findUnpublishedForUpdate(@Param("limit") int limit);
-
-    /** Rows that failed repeatedly; surfaced for alerting rather than retried forever. */
-    @Query("""
-            select o from OutboxEvent o
-            where o.publishedAt is null and o.attempts >= :threshold
-            order by o.createdAt asc
-            """)
-    List<OutboxEvent> findPoisoned(@Param("threshold") int threshold, Pageable pageable);
-
-    long countByPublishedAtIsNull();
 }
