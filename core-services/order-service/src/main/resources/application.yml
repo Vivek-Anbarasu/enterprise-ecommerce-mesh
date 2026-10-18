@@ -51,11 +51,8 @@ mesh:
   tenant:
     required: false
     default-tenant: public
-  outbox:
-    relay-enabled: ${OUTBOX_RELAY_ENABLED:true}
-    poll-interval-ms: ${OUTBOX_POLL_INTERVAL_MS:1000}
-    batch-size: ${OUTBOX_BATCH_SIZE:100}
-    max-attempts: ${OUTBOX_MAX_ATTEMPTS:10}
+  # No outbox relay settings: rows are inserted in the order transaction and
+  # Debezium streams them out of the WAL. There is nothing to poll or batch here.
   saga:
     reservation-ttl-seconds: ${RESERVATION_TTL_SECONDS:900}
   clients:

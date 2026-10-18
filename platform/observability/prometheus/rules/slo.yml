@@ -90,27 +90,12 @@ groups:
             Stock rows are contended. Consider partitioning hot SKUs by warehouse
             or reducing the reservation TTL to shorten hold duration.
 
-      # An unpublished backlog means orders exist that no fulfilment service
-      # knows about. This is the alert that catches a broken outbox relay.
-      - alert: OutboxBacklogGrowing
-        expr: outbox_unpublished_total > 500
-        for: 10m
-        labels:
-          severity: critical
-          runbook: docs/RUNBOOK.md#outbox
-        annotations:
-          summary: "Order outbox relay is falling behind"
-          description: >-
-            {{ $value }} order events are unpublished. Paid orders are not reaching
-            fulfilment. Check the relay logs and Kafka connectivity.
-
-      - alert: OutboxPoisonEvents
-        expr: increase(outbox_dead_letter_total[15m]) > 0
-        labels:
-          severity: warning
-        annotations:
-          summary: "Outbox events exceeded the retry limit"
-          description: "Some events were abandoned after repeated failure; replay from the outbox table."
+      # No outbox alerts here. The polling relay that owned
+      # outbox_unpublished_total and outbox_dead_letter_total is gone; event
+      # delivery is Debezium streaming the WAL, so CDC lag is a Kafka Connect /
+      # Debezium metric rather than something this service exposes.
+      # Order events failing to reach fulfilment now shows up downstream, in the
+      # consumers' own lag alerts under the consumer-health group.
 
   - name: consumer-health
     rules:

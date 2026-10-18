@@ -168,7 +168,6 @@ services:
       # 15 minutes is long enough for a shopper to complete payment and short
       # enough that abandoned holds release quickly under peak load.
       RESERVATION_TTL_SECONDS: "900"
-      OUTBOX_MAX_ATTEMPTS: "10"
 
   payment-service:
     replicas: 4
