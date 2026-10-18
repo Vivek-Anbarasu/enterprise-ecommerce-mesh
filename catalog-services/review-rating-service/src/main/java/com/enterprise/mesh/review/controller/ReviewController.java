@@ -1,6 +1,5 @@
 package com.enterprise.mesh.review.controller;
 import lombok.RequiredArgsConstructor;
-import java.net.URI;
 import java.util.List;
 
 import jakarta.validation.constraints.Max;
@@ -16,12 +15,10 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -30,7 +27,6 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestController
 @RequestMapping("/api/reviews")
@@ -114,17 +110,5 @@ public class ReviewController {
 
     private String tenant(String tenantId) {
         return tenantId == null || tenantId.isBlank() ? "public" : tenantId;
-    }
-
-    @RestControllerAdvice
-    static class ReviewExceptionHandler {
-
-        @ExceptionHandler(IllegalArgumentException.class)
-        ProblemDetail handleBadRequest(IllegalArgumentException ex) {
-            ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
-            problem.setTitle("Invalid Review");
-            problem.setType(URI.create("https://errors.enterprise-ecommerce.com/review/invalid-request"));
-            return problem;
-        }
     }
 }

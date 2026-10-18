@@ -86,6 +86,28 @@ public class SemanticIndexService {
     }
 
     /**
+     * Removes a product from the index.
+     *
+     * <p>Called on deactivation. A withdrawn product that kept its vector would go on answering
+     * queries, and a shopper would be shown something the catalogue no longer sells.
+     *
+     * <p>Idempotent by construction: deleting an absent row is not an error, so a redelivered
+     * event costs nothing.
+     *
+     * @return true if a row was removed
+     */
+    public boolean remove(String tenantId, String sku) {
+        if (tenantId == null || tenantId.isBlank() || sku == null || sku.isBlank()) {
+            return false;
+        }
+        if (embeddings.findByTenantIdAndSku(tenantId, sku).isEmpty()) {
+            return false;
+        }
+        embeddings.deleteByTenantIdAndSku(tenantId, sku);
+        return true;
+    }
+
+    /**
      * Rebuilds one tenant's vectors from the supplied products.
      *
      * <p>Does not delete first: deleting would make a reindex unable to tell an unchanged product

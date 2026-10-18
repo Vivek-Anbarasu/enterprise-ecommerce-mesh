@@ -1,4 +1,4 @@
-package com.enterprise.mesh.notification;
+package com.enterprise.mesh.notification.messaging;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 
 import com.enterprise.mesh.messaging.MessagingTopics;
 import com.enterprise.mesh.messaging.event.CloudEventHeaders;
+import com.enterprise.mesh.notification.service.OrderEventHandler;
 
 /**
  * Consumes order lifecycle events and triggers customer notifications.

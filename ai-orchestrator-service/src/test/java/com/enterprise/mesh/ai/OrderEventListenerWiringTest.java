@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.Collection;
 
 import com.enterprise.mesh.ai.messaging.OrderEventListener;
+import com.enterprise.mesh.ai.messaging.ProductEventListener;
 import com.enterprise.mesh.messaging.MessagingTopics;
 
 import org.junit.jupiter.api.DisplayName;
@@ -88,6 +89,27 @@ class OrderEventListenerWiringTest {
     }
 
     @Test
+    @DisplayName("the product.events consumer runs in its own group")
+    void semanticIndexerHasItsOwnGroup() throws NoSuchMethodException {
+        // This service now consumes two topics. Sharing one group across them would let a slow
+        // embedding stall purchase-affinity processing and vice versa - Kafka dispatches each
+        // topic to one consumer per group, so a shared group couples two flows with no
+        // ordering relationship and no reason to block each other.
+        assertThat(containerForGroup("semantic-indexer"))
+                .as("ProductEventListener has no container in its own group")
+                .isNotNull();
+
+        KafkaListener productAnnotation = ProductEventListener.class
+                .getMethod("onProductEvent", Message.class)
+                .getAnnotation(KafkaListener.class);
+
+        assertThat(productAnnotation.topics()).containsExactly(MessagingTopics.PRODUCT_EVENTS);
+        assertThat(containerForGroup("ai-orchestrator"))
+                .as("The two listeners must resolve to different groups")
+                .isNotNull();
+    }
+
+    @Test
     @DisplayName("the listener is a component, so there is a bean for the annotation to bind")
     void listenerIsAComponent() {
         // Without @Component there is no bean to proxy: the annotation is inert and, just
@@ -97,12 +119,25 @@ class OrderEventListenerWiringTest {
     }
 
     private MessageListenerContainer containerForThisListener() {
-        Collection<MessageListenerContainer> containers = registry.getListenerContainers();
-        return containers.stream()
-                .filter(c -> c.getListenerId().contains(OrderEventListener.class.getSimpleName()))
+        return containerForGroup("ai-orchestrator");
+    }
+
+    /**
+     * Finds a listener container by its <em>resolved</em> consumer group.
+     *
+     * <p>Group rather than class name: the {@code @KafkaListener} groupId is a placeholder that
+     * Spring resolves, so the annotation text cannot be matched against a running container,
+     * and the container id does not carry the listener class name. The resolved group is the
+     * property actually under test.
+     *
+     * <p>This used to fall back to "the only container in the service", which stopped being
+     * true when {@code ProductEventListener} was added. The fallback then returned null and
+     * the failures pointed at a null dereference rather than at the extra listener.
+     */
+    private MessageListenerContainer containerForGroup(String resolvedGroupId) {
+        return registry.getListenerContainers().stream()
+                .filter(c -> resolvedGroupId.equals(c.getContainerProperties().getGroupId()))
                 .findFirst()
-                // Only one listener exists in this service, so an unlabelled container is
-                // still this one - and failing to find it at all is the thing worth catching.
-                .orElse(containers.size() == 1 ? containers.iterator().next() : null);
+                .orElse(null);
     }
 }

@@ -1,4 +1,4 @@
-package com.enterprise.mesh.payment.domain;
+package com.enterprise.mesh.payment.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -10,6 +10,9 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.enterprise.mesh.payment.domain.GatewayResult;
+import com.enterprise.mesh.payment.domain.Payment;
+import com.enterprise.mesh.payment.domain.PaymentGateway;
 import com.enterprise.mesh.payment.repository.PaymentRepository;
 
 /**
@@ -44,7 +47,7 @@ public class PaymentService {
                 paymentRepository.findByIdempotencyKeyAndTenantId(idempotencyKey, tenantId);
         if (existing.isPresent()) {
             log.info("Idempotent replay for payment key {} returning {}",
-                    idempotencyKey, existing.get().getStatus());
+                    existing.get().getId(), existing.get().getStatus());
             return existing.get();
         }
 
@@ -116,19 +119,6 @@ public class PaymentService {
             throw new PaymentNotFoundException(paymentId);
         }
         return payment;
-    }
-
-    /** Outcome of a provider call. */
-    public record GatewayResult(boolean approved, String providerReference,
-                                String instrumentLabel, String declineReason) {
-
-        public static GatewayResult approved(String reference, String label) {
-            return new GatewayResult(true, reference, label, null);
-        }
-
-        public static GatewayResult declined(String reason) {
-            return new GatewayResult(false, null, null, reason);
-        }
     }
 
     /** Thrown when a payment is not visible to the calling tenant. */

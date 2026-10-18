@@ -47,6 +47,20 @@
             <groupId>com.enterprise.mesh</groupId>
             <artifactId>common-observability</artifactId>
         </dependency>
+        <!-- Publishes product.created / product.updated / product.deactivated so
+             ai-orchestrator-service can keep its semantic-search vector index in step with
+             the catalogue. This is the mesh's second producer, after order-service's outbox.
+
+             Note the asymmetry with order-service: it needed a transactional outbox because a
+             lost event there loses a customer purchase. Here the consumer holds derived,
+             rebuildable state, so an AFTER_COMMIT publish plus an existing reindex is the
+             proportionate answer. Do not strip this as "unused" - the publisher is wired
+             through Spring's application events rather than called directly, so a usage search
+             will not find it. That mistake already cost ai-orchestrator-service one consumer. -->
+        <dependency>
+            <groupId>com.enterprise.mesh</groupId>
+            <artifactId>common-messaging</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>

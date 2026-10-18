@@ -1,4 +1,4 @@
-package com.enterprise.mesh.shipping;
+package com.enterprise.mesh.shipping.messaging;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -16,6 +16,7 @@ import com.enterprise.mesh.messaging.MessagingTopics;
 import com.enterprise.mesh.messaging.event.CloudEventHeaders;
 import com.enterprise.mesh.shipping.domain.Shipment;
 import com.enterprise.mesh.shipping.domain.Shipment.ShipmentStatus;
+import com.enterprise.mesh.shipping.service.ShippingService;
 
 /**
  * Turns order events into shipments.

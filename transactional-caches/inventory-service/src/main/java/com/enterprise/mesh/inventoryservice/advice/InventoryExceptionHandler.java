@@ -1,4 +1,4 @@
-package com.enterprise.mesh.inventoryservice.controller;
+package com.enterprise.mesh.inventoryservice.advice;
 
 import lombok.extern.slf4j.Slf4j;
 

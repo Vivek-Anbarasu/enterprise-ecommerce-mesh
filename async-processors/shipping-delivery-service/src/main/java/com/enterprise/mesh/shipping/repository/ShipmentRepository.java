@@ -1,4 +1,4 @@
-package com.enterprise.mesh.shipping;
+package com.enterprise.mesh.shipping.repository;
 
 import java.util.Optional;
 

@@ -4,8 +4,8 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
 
+import com.enterprise.mesh.payment.domain.GatewayResult;
 import com.enterprise.mesh.payment.domain.PaymentGateway;
-import com.enterprise.mesh.payment.domain.PaymentService;
 
 import org.slf4j.MDC;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -108,7 +108,7 @@ public class HttpPaymentGateway implements PaymentGateway {
     }
 
     @Override
-    public PaymentService.GatewayResult authorise(String paymentToken, BigDecimal amount,
+    public GatewayResult authorise(String paymentToken, BigDecimal amount,
                                                   String currency, String idempotencyKey) {
         AuthorisationResponse response = client.post()
                 .uri("/payments/authorisations")
@@ -129,11 +129,11 @@ public class HttpPaymentGateway implements PaymentGateway {
         }
         if (response.declined()) {
             log.info("Provider declined key={} reason={}", idempotencyKey, response.declineReason());
-            return PaymentService.GatewayResult.declined(response.declineReason());
+            return GatewayResult.declined(response.declineReason());
         }
         log.info("Provider authorised key={} reference={} amount={} {}",
                 idempotencyKey, response.providerReference(), amount, currency);
-        return PaymentService.GatewayResult.approved(response.providerReference(), response.instrumentLabel());
+        return GatewayResult.approved(response.providerReference(), response.instrumentLabel());
     }
 
     @Override

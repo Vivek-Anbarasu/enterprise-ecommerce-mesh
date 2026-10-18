@@ -18,8 +18,8 @@ public interface PaymentGateway {
      * @param paymentToken opaque single-use token from the provider's SDK
      * @param idempotencyKey must be forwarded to the provider unchanged
      */
-    PaymentService.GatewayResult authorise(String paymentToken, BigDecimal amount,
-                                           String currency, String idempotencyKey);
+    GatewayResult authorise(String paymentToken, BigDecimal amount,
+                            String currency, String idempotencyKey);
 
     /** Returns captured funds to the customer. */
     void refund(String providerReference, BigDecimal amount, String currency);
