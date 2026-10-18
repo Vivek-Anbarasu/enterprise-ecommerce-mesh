@@ -14,7 +14,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import java.io.IOException;
 import java.math.BigDecimal;
 
-import com.enterprise.mesh.payment.domain.PaymentService;
+import com.enterprise.mesh.payment.domain.GatewayResult;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -72,7 +72,7 @@ class HttpPaymentGatewayTest {
                 .andExpect(content().string(containsString("GBP")))
                 .andRespond(withSuccess(APPROVED_BODY, MediaType.APPLICATION_JSON));
 
-        PaymentService.GatewayResult result = gateway.authorise(TOKEN, AMOUNT, CURRENCY, "idem-1");
+        GatewayResult result = gateway.authorise(TOKEN, AMOUNT, CURRENCY, "idem-1");
 
         assertThat(result.approved()).isTrue();
         assertThat(result.providerReference()).isEqualTo("pi_123");
@@ -104,7 +104,7 @@ class HttpPaymentGatewayTest {
                         {"status":"declined","declineReason":"insufficient_funds"}
                         """, MediaType.APPLICATION_JSON));
 
-        PaymentService.GatewayResult result = gateway.authorise(TOKEN, AMOUNT, CURRENCY, "k");
+        GatewayResult result = gateway.authorise(TOKEN, AMOUNT, CURRENCY, "k");
 
         assertThat(result.approved()).isFalse();
         assertThat(result.declineReason()).isEqualTo("insufficient_funds");
@@ -149,7 +149,7 @@ class HttpPaymentGatewayTest {
                 });
 
         assertThatThrownBy(() -> gateway.authorise(TOKEN, AMOUNT, CURRENCY, "k"))
-                .isNotInstanceOf(PaymentService.GatewayResult.class)
+                .isNotInstanceOf(GatewayResult.class)
                 .isInstanceOf(RuntimeException.class);
     }
 

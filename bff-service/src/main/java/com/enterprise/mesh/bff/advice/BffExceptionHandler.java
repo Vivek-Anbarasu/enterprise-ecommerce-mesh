@@ -1,4 +1,4 @@
-package com.enterprise.mesh.bff.controller;
+package com.enterprise.mesh.bff.advice;
 
 import lombok.extern.slf4j.Slf4j;
 

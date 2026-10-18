@@ -5,8 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import java.math.BigDecimal;
 import java.security.SecureRandom;
 
+import com.enterprise.mesh.payment.domain.GatewayResult;
 import com.enterprise.mesh.payment.domain.PaymentGateway;
-import com.enterprise.mesh.payment.domain.PaymentService;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -27,16 +27,16 @@ public class StubPaymentGateway implements PaymentGateway {
     private final SecureRandom random = new SecureRandom();
 
     @Override
-    public PaymentService.GatewayResult authorise(String paymentToken, BigDecimal amount,
+    public GatewayResult authorise(String paymentToken, BigDecimal amount,
                                                   String currency, String idempotencyKey) {
         // Deterministic decline for an explicitly invalid token, so the failure
         // path is exercised without needing a special environment.
         if (paymentToken != null && paymentToken.startsWith("tok_decline")) {
-            return PaymentService.GatewayResult.declined("card declined (stub)");
+            return GatewayResult.declined("card declined (stub)");
         }
         String reference = "stub_" + Long.toHexString(random.nextLong());
         log.info("[STUB] authorised amount={} {} reference={}", amount, currency, reference);
-        return PaymentService.GatewayResult.approved(reference, "Stub Instrument ****0000");
+        return GatewayResult.approved(reference, "Stub Instrument ****0000");
     }
 
     @Override

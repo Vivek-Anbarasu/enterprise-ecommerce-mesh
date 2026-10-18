@@ -89,33 +89,38 @@ mesh:
     # output. Validated at startup: must be >= 1, because the value reaches
     # Stream.limit() and a negative one throws on the storefront home page.
     max-recommendations: ${AI_MAX_RECOMMENDATIONS:20}
-  # Semantic product search. Separate from the keys above because an embedding model
-  # is not a "provider" - it answers "what is this text about", not "what suits this
-  # shopper". Folding them together would let a future ranking provider change imply
-  # a different search model.
-  semantic:
-    # Directory holding model.onnx and tokenizer.json (~270MB, NOT in the jar). The
-    # service starts without it: /api/ai/search reports 503, and recommendations,
-    # interactions and profile erasure are unaffected. Mount this as a volume or bake
-    # it into the image - do not fetch it at startup.
-    model-dir: ${AI_SEMANTIC_MODEL_DIR:models/nomic-embed-text}
-    top-k: ${AI_SEMANTIC_TOP_K:20}
-    # Cosine similarity of arbitrary product text against a shopper's query is often
-    # near zero. This drops the tail so "nothing matched" returns an empty list rather
-    # than a confident ranking of noise.
-    minimum-score: ${AI_SEMANTIC_MIN_SCORE:0.2}
-    # nomic was trained with task prefixes. Omitting them does not error - it returns
-    # results that are quietly worse, because query and document land in different
-    # regions of the space. Do not change these without reindexing.
-    model-id: nomic-embed-text
-    document-prefix: "search_document: "
-    query-prefix: "search_query: "
     # The Kafka consumer group that owns offsets for order.events. Declared as a mesh
     # property because @KafkaListener(groupId = ...) overrides
     # spring.kafka.consumer.group-id, so a value set there would be silently ignored -
     # and reading the effective group off the yml was exactly the mistake that made the
     # previous value misleading.
     consumer-group: ${MESH_AI_CONSUMER_GROUP:ai-orchestrator}
+    # Semantic product search, nested under ai rather than beside it. Separate from the keys
+    # above because an embedding model is not a "provider": it answers "what is this text
+    # about", not "what suits this shopper". Folding them together would let a future ranking
+    # provider change imply a different search model.
+    semantic:
+      # Directory holding model.onnx and tokenizer.json (~270MB, NOT in the jar). The
+      # service starts without it: /api/ai/search reports 503, and recommendations,
+      # interactions and profile erasure are unaffected. Mount this as a volume or bake
+      # it into the image - do not fetch it at startup.
+      model-dir: ${AI_SEMANTIC_MODEL_DIR:models/nomic-embed-text}
+      top-k: ${AI_SEMANTIC_TOP_K:20}
+      # Cosine similarity of arbitrary product text against a shopper's query is often
+      # near zero. This drops the tail so "nothing matched" returns an empty list rather
+      # than a confident ranking of noise.
+      minimum-score: ${AI_SEMANTIC_MIN_SCORE:0.2}
+      # nomic was trained with task prefixes. Omitting them does not error - it returns
+      # results that are quietly worse, because query and document land in different
+      # regions of the space. Do not change these without reindexing.
+      model-id: nomic-embed-text
+      document-prefix: "search_document: "
+      query-prefix: "search_query: "
+      # Offsets for product.events. A separate group from the order.events consumer above:
+      # Kafka dispatches each topic to one consumer per group, so sharing a group across two
+      # topics would let a slow embedding stall purchase-affinity processing and vice versa.
+      # The two have no ordering relationship and no reason to block each other.
+      consumer-group: ${MESH_AI_SEMANTIC_CONSUMER_GROUP:semantic-indexer}
 
 management:
   endpoints:

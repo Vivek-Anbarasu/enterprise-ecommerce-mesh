@@ -10,10 +10,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.enterprise.mesh.catalog.domain.Product;
+import com.enterprise.mesh.catalog.messaging.ProductChangeNotice;
+import com.enterprise.mesh.catalog.messaging.ProductEventPublisher;
 import com.enterprise.mesh.catalog.repository.ProductRepository;
 
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.ApplicationEventPublisher;
 
 /**
  * Catalogue reads and writes.
@@ -22,6 +25,11 @@ import org.springframework.cache.annotation.Cacheable;
  * constantly and changes rarely, so it is cached for a short TTL. Any write
  * evicts the affected entries rather than waiting for expiry, because a stale
  * price is a customer-trust and compliance problem, not just an annoyance.
+ *
+ * <p>Every write also announces itself as a {@link ProductChangeNotice}, which
+ * {@link ProductEventPublisher} forwards to {@code product.events} once the transaction
+ * commits. That is how {@code ai-orchestrator-service} learns to re-embed a product for
+ * semantic search; nothing else in the mesh consumes the topic.
  */
 @Service
 @Slf4j
@@ -45,6 +53,13 @@ public class ProductCatalogService {
     public static final Duration PRODUCT_CACHE_TTL = Duration.ofMinutes(5);
 
     private final ProductRepository productRepository;
+
+    /**
+     * Announces catalogue changes in-process; {@link ProductEventPublisher} turns them into
+     * Kafka records after commit. Injected so this service never touches Kafka directly and
+     * the write path stays testable without a broker.
+     */
+    private final ApplicationEventPublisher applicationEvents;
     @Cacheable(cacheNames = "product", key = "#tenantId + ':' + #sku")
     @Transactional(readOnly = true)
     public Product findBySku(String sku, String tenantId) {
@@ -85,6 +100,8 @@ public class ProductCatalogService {
         product.setUpdatedAt(java.time.Instant.now());
         Product saved = productRepository.save(product);
         log.info("Created product sku={} tenant={}", saved.getSku(), saved.getTenantId());
+        applicationEvents.publishEvent(
+                new ProductChangeNotice(ProductEventPublisher.CREATED, ProductEventPublisher.of(saved)));
         return saved;
     }
 
@@ -99,7 +116,11 @@ public class ProductCatalogService {
         product.setSku(existing.getSku());
         product.setCreatedAt(existing.getCreatedAt());
         product.setUpdatedAt(java.time.Instant.now());
-        return productRepository.save(product);
+        Product saved = productRepository.save(product);
+        log.info("Updated product sku={} tenant={}", saved.getSku(), saved.getTenantId());
+        applicationEvents.publishEvent(
+                new ProductChangeNotice(ProductEventPublisher.UPDATED, ProductEventPublisher.of(saved)));
+        return saved;
     }
 
     /**
@@ -115,6 +136,11 @@ public class ProductCatalogService {
         product.setUpdatedAt(java.time.Instant.now());
         productRepository.save(product);
         log.info("Deactivated product sku={} tenant={}", sku, tenantId);
+        // active=false travels on the event, so the consumer removes the search vector rather
+        // than re-embedding a product that must no longer be findable. Leaving the vector in
+        // place would keep a withdrawn product answering queries.
+        applicationEvents.publishEvent(
+                new ProductChangeNotice(ProductEventPublisher.DEACTIVATED, ProductEventPublisher.of(product)));
     }
 
     /** Raised when a SKU or id does not exist for the tenant. */

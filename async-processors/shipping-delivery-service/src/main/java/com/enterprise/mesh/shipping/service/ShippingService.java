@@ -1,4 +1,4 @@
-package com.enterprise.mesh.shipping;
+package com.enterprise.mesh.shipping.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -13,7 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.enterprise.mesh.shipping.domain.Shipment;
 import com.enterprise.mesh.shipping.domain.Shipment.ShipmentStatus;
-import com.enterprise.mesh.shipping.ShipmentRepository;
+import com.enterprise.mesh.shipping.repository.ShipmentRepository;
 
 /**
  * Shipment lifecycle, driven by order events and carrier webhooks.

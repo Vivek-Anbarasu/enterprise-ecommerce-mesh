@@ -166,14 +166,12 @@ public class MeshMessagingAutoConfiguration {
         public KafkaAdmin.NewTopics meshTopics(MeshMessagingProperties properties) {
             log.warn("mesh.messaging.auto-create-topics=true - topics will be created at runtime. "
                     + "Manage topics declaratively in production.");
+            // Only topics with a producer and a consumer. This list previously named six
+            // topics that nothing published to and nothing consumed, so the broker was
+            // materialising real topics for flows that did not exist.
             return new KafkaAdmin.NewTopics(
                     topic(properties, MessagingTopics.ORDER_EVENTS),
-                    topic(properties, MessagingTopics.INVENTORY_EVENTS),
-                    topic(properties, MessagingTopics.PAYMENT_EVENTS),
-                    topic(properties, MessagingTopics.ORDER_NOTIFICATIONS),
-                    topic(properties, MessagingTopics.SHIPPING_EVENTS),
-                    topic(properties, MessagingTopics.REVIEW_EVENTS),
-                    topic(properties, MessagingTopics.AUDIT_TRAIL));
+                    topic(properties, MessagingTopics.PRODUCT_EVENTS));
         }
 
         private NewTopic topic(MeshMessagingProperties properties, String name) {

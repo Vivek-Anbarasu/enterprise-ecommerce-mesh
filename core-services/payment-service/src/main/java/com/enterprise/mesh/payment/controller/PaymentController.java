@@ -13,8 +13,8 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 import com.enterprise.mesh.payment.domain.Payment;
-import com.enterprise.mesh.payment.domain.PaymentService;
 import com.enterprise.mesh.payment.repository.PaymentRepository;
+import com.enterprise.mesh.payment.service.PaymentService;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;

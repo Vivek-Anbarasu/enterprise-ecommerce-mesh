@@ -3,9 +3,9 @@ import lombok.RequiredArgsConstructor;
 import java.time.Instant;
 import java.util.List;
 
-import com.enterprise.mesh.shipping.ShippingService;
 import com.enterprise.mesh.shipping.domain.Shipment;
 import com.enterprise.mesh.shipping.domain.Shipment.ShipmentStatus;
+import com.enterprise.mesh.shipping.service.ShippingService;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;

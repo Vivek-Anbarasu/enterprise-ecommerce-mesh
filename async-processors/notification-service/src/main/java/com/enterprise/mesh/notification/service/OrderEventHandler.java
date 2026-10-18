@@ -1,8 +1,10 @@
-package com.enterprise.mesh.notification;
+package com.enterprise.mesh.notification.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.Instant;
+
+import com.enterprise.mesh.notification.NotificationDispatcher;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;

@@ -1,6 +1,5 @@
 package com.enterprise.mesh.customer.controller;
 import lombok.RequiredArgsConstructor;
-import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 
@@ -19,13 +18,11 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -34,7 +31,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestController
 @RequestMapping("/api/customers")
@@ -179,25 +175,5 @@ public class CustomerController {
 
     private String tenant(String headerTenant) {
         return headerTenant == null || headerTenant.isBlank() ? "public" : headerTenant;
-    }
-
-    @RestControllerAdvice
-    static class CustomerExceptionHandler {
-
-        @ExceptionHandler(CustomerService.CustomerNotFoundException.class)
-        ProblemDetail handleNotFound(CustomerService.CustomerNotFoundException ex) {
-            ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
-            problem.setTitle("Customer Not Found");
-            problem.setType(URI.create("https://errors.enterprise-ecommerce.com/customer/not-found"));
-            return problem;
-        }
-
-        @ExceptionHandler(IllegalArgumentException.class)
-        ProblemDetail handleBadRequest(IllegalArgumentException ex) {
-            ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
-            problem.setTitle("Invalid Customer Request");
-            problem.setType(URI.create("https://errors.enterprise-ecommerce.com/customer/invalid-request"));
-            return problem;
-        }
     }
 }
