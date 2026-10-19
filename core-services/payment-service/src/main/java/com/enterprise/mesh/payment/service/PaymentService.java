@@ -75,8 +75,41 @@ public class PaymentService {
             log.info("Payment {} already captured; no-op", paymentId);
             return payment;
         }
+
+        // Provider first, local state second, and the order matters.
+        //
+        // If the local row were flipped to CAPTURED first and the provider call
+        // then failed, this service would report revenue recognised for money it
+        // never took - the exact silent failure this method previously had, where
+        // capture only ever touched the database.
+        //
+        // Taking the money first inverts that failure: funds are taken but the row
+        // is still AUTHORISED. The caller retries, the idempotency key below makes
+        // the retry the same capture rather than a second debit, and the service
+        // converges. An unrecoverable gap is recoverable; a phantom sale is not.
+        gateway.capture(payment.getProviderReference(), payment.getAmount(),
+                payment.getCurrency(), captureIdempotencyKey(payment));
+
         payment.capture();
         return paymentRepository.save(payment);
+    }
+
+    /**
+     * Idempotency key for the capture call.
+     *
+     * <p>Derived from the authorisation's key rather than reusing it. Providers
+     * typically scope idempotency keys per merchant across all endpoints, so
+     * replaying the authorisation's own key on a different call would make the
+     * provider recognise the capture as a repeat of the <em>authorisation</em> and
+     * return its stored response instead of taking the money. The suffix keeps the
+     * two distinct while staying deterministic, which is what makes a retry safe.
+     *
+     * <p>Uses the idempotency key rather than the payment id because the key is
+     * already unique per tenant, whereas payment ids are not obviously scoped that
+     * way for a provider holding merchant-wide idempotency state.
+     */
+    private String captureIdempotencyKey(Payment payment) {
+        return payment.getIdempotencyKey() + ":capture";
     }
 
     /**

@@ -75,6 +75,33 @@ class InventoryItemTest {
     }
 
     @Test
+    @DisplayName("unconfirming reverses confirm and puts the units back on sale")
+    void unconfirmReversesConfirm() {
+        // Exactly the sequence an abandoned checkout leaves behind: 10 on hand,
+        // 4 held, confirmed (revenue recognised), then the order fails to persist.
+        InventoryItem inventoryItem = item(10, 4, 0);
+        inventoryItem.confirm(4);
+        assertThat(inventoryItem.getOnHand()).isEqualTo(6);
+
+        inventoryItem.unconfirm(4);
+
+        assertThat(inventoryItem.getOnHand()).isEqualTo(10);
+        assertThat(inventoryItem.getReserved())
+                .as("confirm already zeroed reserved; unconfirm must not re-add it, or the "
+                        + "units would be counted as both on hand and held")
+                .isZero();
+        assertThat(inventoryItem.available()).isEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("unconfirm is rejected for a non-positive quantity")
+    void unconfirmRejectsNonPositiveQuantity() {
+        assertThatThrownBy(() -> item(10, 4, 0).unconfirm(0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must be positive");
+    }
+
+    @Test
     @DisplayName("a double release cannot drive reserved negative")
     void doubleReleaseIsClamped() {
         InventoryItem inventoryItem = item(10, 3, 0);

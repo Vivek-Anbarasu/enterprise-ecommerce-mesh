@@ -17,6 +17,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import com.enterprise.mesh.messaging.MessagingTopics;
+import com.enterprise.mesh.messaging.event.EventMetadata;
 import com.enterprise.mesh.order.api.OrderDtos.LineRequest;
 import com.enterprise.mesh.order.api.OrderDtos.OrderCreatedEvent;
 import com.enterprise.mesh.order.api.OrderDtos.OrderResponse;
@@ -144,12 +145,41 @@ public class CheckoutSagaOrchestrator {
                     new OrderCreatedEvent(saved.getId(), saved.getCustomerId(), reservationId,
                             saved.getTotalAmount(), saved.getCurrency(), skus, Instant.now()),
                     saved, "order.paid", correlationId);
+
+            // Capture LAST in this try, and that position is load-bearing.
+            //
+            // payment-service commits its own transaction, so this call is not
+            // undone by the rollback below. If capture ran before the outbox write
+            // and that write then failed, the catch would try to void a payment that
+            // is already CAPTURED - which Payment.voidAuthorisation rejects with
+            // "Cannot void a payment in state CAPTURED". That exception would escape
+            // the catch, replacing the real cause and skipping the stock
+            // compensation and the failure event.
+            //
+            // Running last means every failure that can still be compensated leaves
+            // the payment in AUTHORISED, where void is legal. A capture that fails
+            // itself also leaves it AUTHORISED, because the gateway is called before
+            // the local status flips.
+            capturePayment(order, tenantId);
         } catch (RuntimeException e) {
             // Payment is authorised but this transaction is rolling back, so no
             // order will ever reference the authorisation. Void it.
             log.error("Checkout commit failed for order {}; voiding authorisation {}",
                     orderId, order.getPaymentReference(), e);
             voidPayment(order, tenantId);
+
+            // Stock was already confirmed in Step 3, and release is guarded on the
+            // reservation being PENDING - so a release here would be a silent no-op
+            // and the decrement would stand for an order that will never exist.
+            // Unconfirm is the only operation that puts on-hand stock back.
+            compensateConfirmedReservation(order, tenantId, e);
+
+            // Announced through the outbox rather than logged, because nothing
+            // downstream can see this failure otherwise: the order row rolled back,
+            // so fulfilment and notification never learn the order existed. The
+            // event must therefore be written in its own transaction or it would
+            // roll back with everything else.
+            publishCommitFailure(order, tenantId, correlationId, e);
             throw e;
         }
 
@@ -194,6 +224,88 @@ public class CheckoutSagaOrchestrator {
         } catch (RestClientException e) {
             log.error("Failed to release reservation for order {}; the inventory sweeper "
                     + "will reclaim it at TTL: {}", order.getId(), e.toString());
+        }
+    }
+
+    /**
+     * Takes the funds the shopper authorised.
+     *
+     * <p>Authorisation only places a hold, so without this the order completes,
+     * stock is decremented and an {@code order.paid} event is emitted while the
+     * customer has not actually been charged. The hold would then sit until the
+     * provider's authorisation window expired.
+     *
+     * <p>Idempotent at both ends, so a retry after a timeout cannot double-charge:
+     * payment-service replays the capture for an already-captured payment, and
+     * forwards a derived key so the provider recognises a repeated call as the
+     * same capture rather than a second debit.
+     *
+     * <p>Failure propagates. This is the one step after Step 3 that must not be
+     * swallowed - a silent no-op here is precisely how an unpaid order ships.
+     * The catch above then voids the authorisation and returns the stock.
+     */
+    private void capturePayment(Order order, String tenantId) {
+        restClient.post()
+                .uri("${mesh.clients.payment}/api/payments/{id}/capture",
+                        order.getPaymentReference())
+                .header("X-Tenant-ID", tenantId)
+                .retrieve()
+                .body(Object.class);
+        log.info("Captured payment {} for order {}", order.getPaymentReference(), order.getId());
+    }
+
+    /**
+     * Undoes the Step 3 confirm for an order that is about to be rolled back.
+     *
+     * <p>Best effort, on the same reasoning as {@link #compensateReservation}: the
+     * shopper has already been failed, so throwing here would replace a correct
+     * cancellation with a 500. But unlike a release the failure is not benign - if
+     * this does not land, stock stays permanently decremented for an order that
+     * does not exist, and only a manual goods receipt can put it back. So it is
+     * logged at error with the recovery endpoint, not swallowed.
+     */
+    private void compensateConfirmedReservation(Order order, String tenantId, RuntimeException cause) {
+        try {
+            restClient.post()
+                    .uri("${mesh.clients.inventory}/api/inventory/reservations/{id}/unconfirm",
+                            order.getInventoryReservationId())
+                    .header("X-Tenant-ID", tenantId)
+                    .retrieve()
+                    .body(Object.class);
+            log.warn("Unconfirmed stock reservation for order {}; the order was not persisted",
+                    order.getId());
+        } catch (RestClientException unconfirmFailure) {
+            log.error("Failed to unconfirm reservation for order {}. Stock was decremented in "
+                            + "Step 3 and has NOT been returned, and no order references it. "
+                            + "Recover with POST /api/inventory/<sku>/receipts. cause={}",
+                    order.getId(), unconfirmFailure.toString(), cause);
+        }
+    }
+
+    /**
+     * Emits {@code order.failed} for a checkout that reached payment but never
+     * persisted.
+     *
+     * <p>Recorded through {@link OutboxService#recordAfterRollback} rather than
+     * {@code recordOrderEvent}, because this runs inside the catch of a
+     * transaction that is already rolling back: an event written through the
+     * normal outbox path would be rolled back with it and the failure would stay
+     * invisible, which is what it looked like before this existed.
+     */
+    private void publishCommitFailure(Order order, String tenantId, String correlationId,
+                                      RuntimeException cause) {
+        try {
+            outboxService.recordAfterRollback(MessagingTopics.ORDER_EVENTS,
+                    new OrderStatusEvent(order.getId(), order.getCustomerId(),
+                            order.getStatus().name(), order.getStatus().name(),
+                            "checkout failed after payment authorisation: " + cause.getMessage(),
+                            Instant.now()),
+                    EventMetadata.of("order.failed", "order", order.getId(), tenantId, correlationId));
+        } catch (RuntimeException publishFailure) {
+            // The transaction is already failing; losing the notification on top of
+            // that would be silent. The error log above still names the order.
+            log.error("Could not publish order.failed for order {}; nothing downstream will "
+                    + "learn this checkout failed", order.getId(), publishFailure);
         }
     }
 

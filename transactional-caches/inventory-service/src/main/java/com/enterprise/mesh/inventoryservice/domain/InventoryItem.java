@@ -27,13 +27,17 @@ import lombok.Getter;
  *
  * <ul>
  *   <li>Every mutation goes through {@link #reserve}, {@link #release},
- *       {@link #confirm} or {@link #receive}. Each validates its argument and then
- *       calls {@code touch()}. A setter would bypass all four.</li>
+ *       {@link #confirm}, {@link #unconfirm} or {@link #receive}. Each validates
+ *       its argument and then calls {@code touch()}. A setter would bypass all
+ *       five.</li>
  *   <li>{@link #confirm} is the point revenue is recognised, and it moves
  *       {@code reserved} and {@code onHand} <em>together</em>. A setter on either
  *       would let stock be decremented without releasing the hold, or a hold
  *       released without decrementing stock - either corrupts the ledger and
  *       eventually double-sells.</li>
+ *   <li>{@link #unconfirm} is the only path that puts {@code onHand} back after a
+ *       sale, and it is reachable only from a CONFIRMED reservation. A setter would
+ *       make stock creation trivial by comparison.</li>
  *   <li>{@link #release} and {@link #confirm} clamp at zero precisely so a
  *       double-release cannot drive the counter negative. That protection lives in
  *       the method body and is gone the moment a setter exists.</li>
@@ -159,6 +163,35 @@ public class InventoryItem {
         }
         this.reserved = Math.max(0, this.reserved - quantity);
         this.onHand = Math.max(0, this.onHand - quantity);
+        touch();
+    }
+
+    /**
+     * Undoes a {@link #confirm}, returning the units to on-hand stock.
+     *
+     * <p>The compensating move for a checkout that confirmed stock and then
+     * failed to persist the order. Without it the decrement {@code confirm} applied
+     * is permanent, because {@link #release} refuses a reservation that is no
+     * longer pending and the sweeper ignores anything that is not pending - so
+     * stock disappears for an order that will never exist.
+     *
+     * <p>Only {@code onHand} moves. {@code confirm} already decremented
+     * {@code reserved}, so restoring it here would inflate the hold counter and
+     * make stock look permanently unavailable rather than sellable. After this,
+     * {@code available()} is back to what it was before the reservation was ever
+     * taken, which is the correct resting state for an order that was abandoned.
+     *
+     * <p>Not clamped, unlike {@link #release} and {@link #confirm}. Those clamp
+     * because they decrement a counter that a repeated call could drive negative.
+     * This one increments, so a repeated call would inflate {@code onHand} - and
+     * that is prevented one level up, by {@code InventoryReservation.unconfirm()}
+     * refusing to transition a reservation that is not CONFIRMED.
+     */
+    public void unconfirm(int quantity) {
+        if (quantity <= 0) {
+            throw new IllegalArgumentException("Unconfirm quantity must be positive");
+        }
+        this.onHand += quantity;
         touch();
     }
 

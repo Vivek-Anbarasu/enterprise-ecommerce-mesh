@@ -95,6 +95,17 @@ public class InventoryController {
                 inventoryService.release(reservationId, tenantId == null ? "public" : tenantId));
     }
 
+    @PostMapping("/reservations/{reservationId}/unconfirm")
+    @PreAuthorize("hasAnyRole('SERVICE','ADMIN')")
+    @Operation(summary = "Undo a confirmed reservation whose order was never persisted "
+            + "(idempotent); returns the units to sale")
+    public ResponseEntity<ReservationStatusResponse> unconfirm(
+            @PathVariable @Size(max = 64) String reservationId,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantId) {
+        return ResponseEntity.ok(
+                inventoryService.unconfirm(reservationId, tenantId == null ? "public" : tenantId));
+    }
+
     @PostMapping("/{sku}/receipts")
     @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Record goods received against a SKU")

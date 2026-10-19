@@ -138,6 +138,7 @@ services:
       SESSION_TIMEOUT: "30m"
 
   product-catalog-service:
+    replicas: 4
     extraEnv:
       ENTRA_TENANT_ID: ""
 
@@ -146,10 +147,13 @@ services:
       ENTRA_TENANT_ID: ""
 
   ai-orchestrator-service:
+    replicas: 2
     extraEnv:
       ENTRA_TENANT_ID: ""
+      AI_PROVIDER: none
 
   shopping-cart-service:
+    replicas: 4
     extraEnv:
       ENTRA_TENANT_ID: ""
 
@@ -158,8 +162,11 @@ services:
       ENTRA_TENANT_ID: ""
 
   inventory-service:
+    replicas: 4
     extraEnv:
       ENTRA_TENANT_ID: ""
+      SWEEPER_INTERVAL_MS: "30000"
+      SWEEPER_BATCH_SIZE: "500"
 
   order-service:
     replicas: 4
@@ -177,18 +184,6 @@ services:
       # must never reach production; the service refuses to start otherwise.
       PAYMENT_GATEWAY: production
 
-  inventory-service:
-    replicas: 4
-    extraEnv:
-      SWEEPER_INTERVAL_MS: "30000"
-      SWEEPER_BATCH_SIZE: "500"
-
-  product-catalog-service:
-    replicas: 4
-
-  shopping-cart-service:
-    replicas: 4
-
   notification-service:
     replicas: 3
     extraEnv:
@@ -198,11 +193,6 @@ services:
 
   shipping-delivery-service:
     replicas: 2
-
-  ai-orchestrator-service:
-    replicas: 2
-    extraEnv:
-      AI_PROVIDER: none
 
 # Tighter autoscaling for the critical checkout path; the AI tier is left
 # conservative because it is optional.

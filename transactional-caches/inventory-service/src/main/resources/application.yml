@@ -52,11 +52,24 @@ spring:
     baseline-on-migrate: true
     locations: classpath:db/migration
     validate-on-migrate: true
-  data:
-    redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      timeout: 1s
+  # No redis block and no spring-boot-starter-data-redis, both removed together.
+  # Nothing here reads or writes Redis: reservations live in this service's own
+  # PostgreSQL schema and stock correctness is enforced with @Version optimistic
+  # locking, so there is no cache to sit in front of and no session state to hold.
+  #
+  # Leaving the starter on the classpath was not harmless. Boot auto-configures a
+  # redisHealthContributor from it, so /actuator/health attempted a connection to
+  # ${REDIS_HOST:localhost} - which in a pod is the pod itself - and answered 503
+  # with status DOWN while every other component was UP. The Kubernetes liveness
+  # and readiness probes did not notice, because their groups are scoped to
+  # readinessState+db and livenessState respectively, so nothing restarted: the
+  # service served traffic normally while reporting itself broken to every
+  # external health check, uptime monitor and status dashboard.
+  #
+  # If Redis is ever genuinely needed here, do not reinstate it as a cache on
+  # stock. A stale availability answer is an oversell, and stock is the one
+  # record in this mesh that must never be served stale.
+  #
   # No kafka block on purpose: this service has no @KafkaListener and no EventPublisher,
   # and no longer depends on common-messaging. Reservations are held in its own
   # PostgreSQL schema, not on a broker. See the note in ai-orchestrator-service on why

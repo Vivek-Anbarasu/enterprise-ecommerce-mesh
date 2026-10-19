@@ -30,6 +30,12 @@ import org.springframework.web.client.RestClient;
  *   200 {"status":"authorised","providerReference":"pi_123","instrumentLabel":"Visa ****4242"}
  *   200 {"status":"declined","declineReason":"insufficient_funds"}
  *
+ * POST {baseUrl}/payments/{reference}/capture
+ *   Authorization: Bearer {apiKey}
+ *   Idempotency-Key: {captureIdempotencyKey}   &lt;- distinct from the authorisation's
+ *   {"amount":129.99,"currency":"GBP"}
+ *   204
+ *
  * POST {baseUrl}/payments/refunds
  *   Authorization: Bearer {apiKey}
  *   Idempotency-Key: {idempotencyKey}
@@ -137,6 +143,29 @@ public class HttpPaymentGateway implements PaymentGateway {
     }
 
     @Override
+    public void capture(String providerReference, BigDecimal amount, String currency,
+                        String idempotencyKey) {
+        // The amount and currency are sent as defence in depth, not because the
+        // provider needs them: the provider already knows them from the
+        // authorisation. Sending them makes the intent explicit at the boundary and
+        // gives the provider something to reject against if the two ever diverge.
+        client.post()
+                .uri("/payments/{reference}/capture", providerReference)
+                // Forwarded unchanged, exactly as with authorise. This is the only
+                // thing preventing a retried capture from becoming a second debit.
+                .header("Idempotency-Key", idempotencyKey)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(new CaptureRequest(amount, currency))
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, (request, res) -> {
+                    throw unavailable(idempotencyKey, res.getStatusCode().value());
+                })
+                .toBodilessEntity();
+
+        log.info("Provider captured reference={} amount={} {}", providerReference, amount, currency);
+    }
+
+    @Override
     public void refund(String providerReference, BigDecimal amount, String currency) {
         // The refund has no idempotency key of its own in this contract; the
         // provider reference is the handle, and PaymentService guarantees this is
@@ -176,6 +205,9 @@ public class HttpPaymentGateway implements PaymentGateway {
     }
 
     private record RefundRequest(String providerReference, BigDecimal amount, String currency) {
+    }
+
+    private record CaptureRequest(BigDecimal amount, String currency) {
     }
 
     private record AuthorisationResponse(String status, String providerReference,

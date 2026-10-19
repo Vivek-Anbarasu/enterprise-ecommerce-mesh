@@ -38,6 +38,7 @@ class HttpPaymentGatewayTest {
 
     private static final String AUTHORISATIONS = "https://payments.example/payments/authorisations";
     private static final String REFUNDS = "https://payments.example/payments/refunds";
+    private static final String CAPTURE = "https://payments.example/payments/pi_123/capture";
     private static final BigDecimal AMOUNT = new BigDecimal("129.99");
     private static final String CURRENCY = "GBP";
     private static final String TOKEN = "tok_live_abc123";
@@ -160,6 +161,64 @@ class HttpPaymentGatewayTest {
                 .andRespond(withSuccess("", MediaType.APPLICATION_JSON));
 
         assertThatThrownBy(() -> gateway.authorise(TOKEN, AMOUNT, CURRENCY, "k"))
+                .isInstanceOf(PaymentProviderUnavailableException.class);
+    }
+
+    @Test
+    @DisplayName("capture posts to the reference-scoped endpoint and accepts 204")
+    void captureSucceeds() {
+        server.expect(requestTo(CAPTURE))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header("Authorization", "Bearer " + API_KEY))
+                .andExpect(content().string(containsString("129.99")))
+                .andExpect(content().string(containsString("GBP")))
+                .andRespond(withNoContent());
+
+        gateway.capture("pi_123", AMOUNT, CURRENCY, "idem-1:capture");
+
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("capture forwards the idempotency key unchanged")
+    void captureForwardsIdempotencyKey() {
+        server.expect(requestTo(CAPTURE))
+                .andExpect(header("Idempotency-Key", "idem-1:capture"))
+                .andRespond(withNoContent());
+
+        gateway.capture("pi_123", AMOUNT, CURRENCY, "idem-1:capture");
+
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("a retried capture sends the same key, so the provider sees one capture")
+    void retrySendsTheSameKey() {
+        // The whole reason the key is derived rather than random: a retry after a
+        // timeout must be recognisable as the same capture, not a second debit.
+        server.expect(requestTo(CAPTURE))
+                .andExpect(header("Idempotency-Key", "idem-1:capture"))
+                .andRespond(request -> { throw new IOException("timeout"); });
+        server.expect(requestTo(CAPTURE))
+                .andExpect(header("Idempotency-Key", "idem-1:capture"))
+                .andRespond(withNoContent());
+
+        assertThatThrownBy(() -> gateway.capture("pi_123", AMOUNT, CURRENCY, "idem-1:capture"))
+                .isInstanceOf(RuntimeException.class);
+        gateway.capture("pi_123", AMOUNT, CURRENCY, "idem-1:capture");
+
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("a failed capture throws rather than reporting success")
+    void captureFailurePropagates() {
+        server.expect(requestTo(CAPTURE))
+                .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+
+        assertThatThrownBy(() -> gateway.capture("pi_123", AMOUNT, CURRENCY, "idem-1:capture"))
+                .as("a silent success here would mean PaymentService records revenue for "
+                        + "money the provider never took")
                 .isInstanceOf(PaymentProviderUnavailableException.class);
     }
 
