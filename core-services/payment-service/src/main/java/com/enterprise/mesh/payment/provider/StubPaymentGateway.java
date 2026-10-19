@@ -40,6 +40,15 @@ public class StubPaymentGateway implements PaymentGateway {
     }
 
     @Override
+    public void capture(String providerReference, BigDecimal amount, String currency,
+                        String idempotencyKey) {
+        // Logs the idempotency key so a local run shows a retried capture sending
+        // the same key, which is the property the real gateway depends on.
+        log.info("[STUB] captured reference={} amount={} {} idempotencyKey={}",
+                providerReference, amount, currency, idempotencyKey);
+    }
+
+    @Override
     public void refund(String providerReference, BigDecimal amount, String currency) {
         log.info("[STUB] refunded reference={} amount={} {}", providerReference, amount, currency);
     }

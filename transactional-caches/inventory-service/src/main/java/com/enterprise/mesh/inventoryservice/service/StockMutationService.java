@@ -25,7 +25,7 @@ import com.enterprise.mesh.inventoryservice.repository.InventoryItemRepository;
 public class StockMutationService {
 
     public enum Action {
-        RESERVE, RELEASE, CONFIRM, RECEIVE
+        RESERVE, RELEASE, CONFIRM, UNCONFIRM, RECEIVE
     }
 
     private final InventoryItemRepository itemRepository;
@@ -44,6 +44,7 @@ public class StockMutationService {
             case RESERVE -> item.reserve(quantity);
             case RELEASE -> item.release(quantity);
             case CONFIRM -> item.confirm(quantity);
+            case UNCONFIRM -> item.unconfirm(quantity);
             case RECEIVE -> item.receive(quantity);
         }
 

@@ -53,8 +53,34 @@ public class OutboxService {
 
     private final OutboxEventRepository outboxRepository;
     private final ObjectMapper objectMapper;
+    /**
+     * Records an event in a transaction of its own, for use when the caller's
+     * transaction is doomed.
+     *
+     * <p>{@link #record} is {@code MANDATORY}: joining the caller's transaction
+     * is the whole point, because the event must commit or roll back with the
+     * aggregate. That makes it useless for reporting a checkout that has just
+     * failed - the row would be written into the transaction that is rolling back
+     * and disappear with it, which is exactly the silence this method exists to
+     * fix.
+     *
+     * <p>{@code REQUIRES_NEW} suspends the doomed transaction and commits on its
+     * own connection, so the failure event survives. Must be invoked from another
+     * bean: Spring's {@code @Transactional} is proxy-based, so
+     * {@code this.recordAfterRollback(...)} would silently run in the caller's
+     * transaction and defeat the whole mechanism.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordAfterRollback(String topic, Object payload, EventMetadata metadata) {
+        write(topic, payload, metadata);
+    }
+
     @Transactional(propagation = Propagation.MANDATORY)
     public void record(String topic, Object payload, EventMetadata metadata) {
+        write(topic, payload, metadata);
+    }
+
+    private void write(String topic, Object payload, EventMetadata metadata) {
         String json = serialise(payload);
         outboxRepository.save(new OutboxEvent(
                 UUID.randomUUID().toString(),

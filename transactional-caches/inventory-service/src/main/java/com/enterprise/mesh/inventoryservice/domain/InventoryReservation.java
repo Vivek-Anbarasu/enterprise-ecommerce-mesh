@@ -59,7 +59,15 @@ public class InventoryReservation {
         /** Hold returned to available stock. */
         RELEASED,
         /** Hold expired untouched and was swept. */
-        EXPIRED
+        EXPIRED,
+        /**
+         * A confirmed sale that was undone, because the order it belonged to was
+         * never persisted. Stock is back on sale.
+         *
+         * <p>Terminal, like every other state here. The sweeper's query filters on
+         * PENDING, so this row is never revisited.
+         */
+        UNCONFIRMED
     }
 
     @Id
@@ -137,6 +145,29 @@ public class InventoryReservation {
             return false;
         }
         this.status = ReservationStatus.RELEASED;
+        return true;
+    }
+
+    /**
+     * Transitions CONFIRMED to UNCONFIRMED, reversing the stock decrement.
+     *
+     * <p>Guarded on CONFIRMED specifically, not merely on "not already
+     * finalised". {@link #release} accepts any pending hold, but a release here
+     * would be wrong: it subtracts {@code reserved} without restoring
+     * {@code onHand}, so on a confirmed row it would corrupt the ledger rather
+     * than fix it. Only an unconfirm puts physical stock back.
+     *
+     * <p>This guard is also the only thing stopping a repeated call from
+     * inflating stock - {@link InventoryItem#unconfirm} deliberately does not
+     * clamp, because there is nothing to clamp against.
+     *
+     * @return false when the reservation is not CONFIRMED, including a second call
+     */
+    public boolean unconfirm() {
+        if (status != ReservationStatus.CONFIRMED) {
+            return false;
+        }
+        this.status = ReservationStatus.UNCONFIRMED;
         return true;
     }
 

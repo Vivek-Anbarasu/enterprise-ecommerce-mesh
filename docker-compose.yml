@@ -17,6 +17,32 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: mesh-postgres
+    # Logical replication, required by the Debezium connector that streams
+    # order-service's outbox table out to Kafka
+    # (platform/kubernetes/debezium/order-outbox-connector.yaml).
+    #
+    # The three settings are independent and all three are needed:
+    #   wal_level=logical      - puts row changes in the WAL. `replica` omits them,
+    #                            so the connector would see an empty stream and
+    #                            every order event would silently never ship.
+    #   max_replication_slots  - one reserved slot per connector. Without headroom
+    #                            a second connector cannot be added, because
+    #                            PostgreSQL caps this at max_connections.
+    #   max_wal_senders        - background processes serving those slots. Must be
+    #                            >= max_replication_slots or slots stay inactive.
+    #
+    # Raising wal_level on an initialised data directory is a no-op until the
+    # server is restarted, which the `command:` below is what forces. A volume
+    # that was created before these flags is still initialised; `docker compose
+    # down -v` recreates it.
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=logical"
+      - "-c"
+      - "max_replication_slots=10"
+      - "-c"
+      - "max_wal_senders=10"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres

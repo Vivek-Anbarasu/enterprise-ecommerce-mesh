@@ -40,10 +40,18 @@ import org.springframework.context.ApplicationContext;
         "spring.datasource.password=",
         "spring.flyway.enabled=false",
         "spring.jpa.hibernate.ddl-auto=create-drop",
-        // Redis and Kafka are deliberately left auto-configured rather than excluded.
-        // Neither connects eagerly, but MeshMessagingAutoConfiguration depends on
+        // Kafka is deliberately left auto-configured rather than excluded. It never
+        // connects eagerly, but MeshMessagingAutoConfiguration depends on
         // KafkaProperties, so excluding Kafka breaks the context for the opposite of
         // the intended reason.
+        //
+        // Redis is the opposite case and is now absent entirely - neither the starter
+        // nor a spring.data.redis block. While the starter was on the classpath, Boot
+        // contributed a redisHealthContributor that made /actuator/health attempt a
+        // connection and answer 503 DOWN while this service was working perfectly.
+        // The Kubernetes probes did not notice, because their groups are scoped, so
+        // nothing restarted; the service just lied to every external health check and
+        // uptime monitor. Do not add it back - see the note in application.yml.
         "mesh.tenant.allow-all=true"
 })
 class InventoryServiceApplicationScanTest {

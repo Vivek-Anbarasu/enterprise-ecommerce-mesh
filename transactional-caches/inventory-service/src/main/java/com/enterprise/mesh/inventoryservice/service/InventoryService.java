@@ -167,6 +167,37 @@ public class InventoryService {
         return toStatusResponse(reservation);
     }
 
+    /**
+     * Undoes a confirmed reservation, returning the units to on-hand stock.
+     *
+     * <p>Exists because {@link #release} cannot clean up after {@link #confirm}:
+     * release is guarded on the reservation being PENDING, so a confirmed hold was
+     * a silent no-op, and the expiry sweeper skips non-pending rows. An order that
+     * confirmed stock and then failed to persist therefore decremented stock
+     * permanently.
+     *
+     * <p>Idempotent, like confirm and release. Unconfirming something that is not
+     * CONFIRMED is a no-op rather than an error, so a redelivered compensation
+     * cannot inflate {@code onHand}.
+     */
+    @Transactional
+    public ReservationStatusResponse unconfirm(String reservationId, String tenantId) {
+        InventoryReservation reservation = loadReservation(reservationId, tenantId);
+
+        if (reservation.unconfirm()) {
+            reservationRepository.save(reservation);
+            forEachLine(reservationId, (sku, quantity) ->
+                    mutateWithRetry(sku, quantity, tenantId, StockMutationService.Action.UNCONFIRM));
+            log.info("Unconfirmed reservation {} for order {}; stock returned to sale",
+                    reservationId, reservation.getOrderId());
+        } else {
+            log.info("Reservation {} is {}; unconfirm is a no-op",
+                    reservationId, reservation.getStatus());
+        }
+
+        return toStatusResponse(reservation);
+    }
+
     @Transactional(readOnly = true)
     public ReservationStatusResponse status(String reservationId, String tenantId) {
         return toStatusResponse(loadReservation(reservationId, tenantId));
