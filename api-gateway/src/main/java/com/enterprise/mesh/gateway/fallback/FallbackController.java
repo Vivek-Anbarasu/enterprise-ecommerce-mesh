@@ -3,6 +3,8 @@ package com.enterprise.mesh.gateway.fallback;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -12,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ServerWebExchange;
 
 import com.enterprise.mesh.gateway.filter.BulkheadGatewayFilterFactory;
+import com.enterprise.mesh.observability.TraceIds;
 import reactor.core.publisher.Mono;
 
 /**
@@ -34,6 +37,12 @@ import reactor.core.publisher.Mono;
 @RequestMapping("/fallback")
 @Slf4j
 public class FallbackController {
+
+    private final TraceIds traceIds;
+
+    public FallbackController(TraceIds traceIds) {
+        this.traceIds = traceIds;
+    }
 
     @RequestMapping(path = "/catalog", produces = MediaType.APPLICATION_PROBLEM_JSON_VALUE)
     public Mono<ProblemDetail> catalog(ServerWebExchange exchange) {
@@ -111,7 +120,13 @@ public class FallbackController {
                 .fromPath("https://errors.enterprise-ecommerce.com/{title}")
                 .buildAndExpand(title.toLowerCase()).toUri());
         problem.setProperty("timestamp", Instant.now().toString());
-        problem.setProperty("traceId", org.slf4j.MDC.get("trace_id"));
+        // Resolved through TraceIds rather than MDC: this is a reactive pipeline,
+        // so the span lives on a Reactor thread the servlet filters never ran on
+        // and an MDC read would come back empty even with the right key. Omitted
+        // entirely when there is no active span - never the string "null".
+        Map<String, Object> properties = new LinkedHashMap<>();
+        traceIds.applyTo(properties);
+        properties.forEach(problem::setProperty);
         return Mono.just(problem);
     }
 }

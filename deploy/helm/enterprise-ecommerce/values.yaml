@@ -11,9 +11,14 @@ global:
   logLevelRoot: INFO
   logLevelApp: INFO
   tracingSampleRate: "0.1"
-  otlpEndpoint: http://jaeger-collector.observability.svc.cluster.local:4318/v1/traces
+  otlpEndpoint: http://otel-collector.observability.svc.cluster.local:4318/v1/traces
   # Shared by every service; used for rate limiting and tenant resolution.
   tenantDefault: public
+  # `aud` claim accepted on bearer tokens. One API registration backs the whole
+  # mesh, so this is one value rather than a per-service setting. Left empty: the
+  # entra guard refuses to start rather than silently accepting a token minted
+  # for any other application in the directory.
+  entraAudience: ""
 
   # Tenants this deployment serves. TenantContextFilter rejects anything else with
   # 403 before it reaches business logic.
@@ -54,7 +59,7 @@ istio:
   # Name of an OpenTelemetry provider defined in the istiod MeshConfig
   # `extensionProviders` block. Left empty by default so the chart renders
   # nothing that would be rejected by a control plane without that definition.
-  # See docs/AKS-DEPLOYMENT.md for the Jaeger definition.
+  # See deploy/istiod/meshconfig-tracing.yaml for the otel-collector definition.
   tracingProvider: ""
 
   waypoint:
@@ -94,8 +99,13 @@ infrastructure:
   redis:
     host: redis-cache.redis.svc.cluster.local
     port: 6379
+    ssl: false
   kafka:
     bootstrapServers: kafka.messaging.svc.cluster.local:9092
+    securityProtocol: PLAINTEXT
+    # Empty locally: a plain broker rejects a SASL mechanism it has no
+    # credentials for, and there is nothing to authenticate against.
+    saslMechanism: ""
   mongodb:
     uri: ""
 
@@ -510,17 +520,24 @@ webApplicationFirewall:
     sectionNames: []
 
 # ---------------------------------------------------------------------------
-# Platform components installed alongside the mesh.
+# Observability.
+#
+# There is deliberately NO block here any more. It used to read:
+#
+#   observability:
+#     prometheus: { enabled: true, retention: 15d }
+#     grafana:    { enabled: true, adminUser: admin }
+#     jaeger:     { enabled: true }
+#
+# and no chart template ever read it. Nothing was deployed by those flags, so
+# they were three switches that appeared to control a platform nobody could
+# switch on. The metrics path is Azure Monitor managed service for Prometheus,
+# configured in-cluster by platform/observability/amp/ and in Azure by
+# deploy/azure/ - neither of which is this chart's business.
+#
+# Local development runs its own Prometheus, Grafana and Jaeger from
+# docker-compose.yml. That is a developer convenience, not a deployment mode.
 # ---------------------------------------------------------------------------
-observability:
-  prometheus:
-    enabled: true
-    retention: 15d
-  grafana:
-    enabled: true
-    adminUser: admin
-  jaeger:
-    enabled: true
 
 # Guardrails applied to every generated workload.
 podSecurity:

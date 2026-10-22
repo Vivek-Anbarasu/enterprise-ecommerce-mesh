@@ -5,6 +5,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
 
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -35,6 +36,31 @@ public class BusinessMetrics {
                         .tag("outcome", outcome)
                         .register(registry))
                 .increment();
+    }
+
+    /**
+     * Increments a named counter with arbitrary tags, caching the meter per
+     * name-and-tags combination.
+     *
+     * <p>Exists so an alert rule and its emitter cannot drift apart. Every rule in
+     * {@code platform/observability/amp/rules.yaml} evaluates a metric
+     * name; if a service publishes that name under a spelling nobody reads, the
+     * rule silently never fires and nobody finds out until the failure it was
+     * meant to catch happens for real. Publishing through one shared helper makes
+     * the name a single decision rather than a string repeated in two files.
+     *
+     * <p>Tag cardinality is the caller's responsibility — keep values to a closed
+     * set. {@link #meshCardinalityGuard} in the auto-configuration caps series per
+     * meter, so an unbounded value degrades into a dropped series rather than an
+     * outage, but a dropped series still means a blind spot.
+     */
+    public void increment(String metric, Map<String, String> tags) {
+        String key = metric + tags;
+        counters.computeIfAbsent(key, k -> {
+            Counter.Builder builder = Counter.builder(metric).description(metric);
+            tags.forEach(builder::tag);
+            return builder.register(registry);
+        }).increment();
     }
 
     /**

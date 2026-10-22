@@ -1,4 +1,4 @@
-package com.enterprise.mesh.notification;
+package com.enterprise.mesh.notification.dispatcher;
 
 import lombok.extern.slf4j.Slf4j;
 

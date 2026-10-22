@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import tools.jackson.databind.ObjectMapper;
@@ -19,6 +20,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.access.AccessDeniedHandler;
 
+import com.enterprise.mesh.observability.TraceIds;
+
 /**
  * Renders authorization failures as RFC 9457 problem documents and
  * distinguishes 401 (anonymous) from 403 (authenticated but not permitted).
@@ -29,6 +32,8 @@ public class ProblemDetailAccessDeniedHandler implements AccessDeniedHandler {
 
     private final ObjectMapper objectMapper;
     private final URI problemBaseUri;
+    private final TraceIds traceIds;
+
     @Override
     public void handle(HttpServletRequest request, HttpServletResponse response,
                        AccessDeniedException accessDeniedException) throws IOException {
@@ -51,9 +56,15 @@ public class ProblemDetailAccessDeniedHandler implements AccessDeniedHandler {
         problem.setTitle(title);
         problem.setType(problemBaseUri.resolve(title.toLowerCase()));
         problem.setInstance(URI.create(request.getRequestURI()));
-        problem.setProperties(Map.of(
-                "path", request.getRequestURI(),
-                "traceId", String.valueOf(org.slf4j.MDC.get("trace_id"))));
+
+        // LinkedHashMap, not Map.of: Map.of rejects null values, and traceId is
+        // legitimately absent when tracing is disabled. Absent means the property
+        // is omitted - never the string "null", which is what this handler used
+        // to return because it read an MDC key nothing writes.
+        Map<String, Object> properties = new LinkedHashMap<>();
+        properties.put("path", request.getRequestURI());
+        traceIds.applyTo(properties);
+        problem.setProperties(properties);
 
         response.setStatus(status);
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);

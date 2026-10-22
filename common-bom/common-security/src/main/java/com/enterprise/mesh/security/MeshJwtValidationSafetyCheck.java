@@ -52,6 +52,11 @@ public class MeshJwtValidationSafetyCheck implements InitializingBean {
 
     @Override
     public void afterPropertiesSet() {
+        if (isEntraProfileActive()) {
+            requireTenantId();
+            requireAudience();
+        }
+
         if (jwtDecoderProvider.getIfAvailable() != null) {
             log.info("Resource server configured: forwarded bearer tokens are validated against '{}'",
                     issuerOrDefault());
@@ -80,6 +85,52 @@ public class MeshJwtValidationSafetyCheck implements InitializingBean {
         return environment.getProperty(
                 "spring.security.oauth2.resourceserver.jwt.issuer-uri",
                 "ENTRA tenant " + environment.getProperty("ENTRA_TENANT_ID", "(unset)"));
+    }
+
+    /**
+     * Refuses an {@code entra} startup with no directory configured.
+     *
+     * <p>The decoder bean normally enforces this while it is being built, but an
+     * operator may replace that bean. Checking here means the same precondition
+     * holds however the decoder was supplied.
+     */
+    private void requireTenantId() {
+        String tenantId = environment.getProperty("ENTRA_TENANT_ID");
+        if (tenantId == null
+                || tenantId.isBlank()
+                || tenantId.startsWith("REPLACE_")) {
+            throw new IllegalStateException(
+                    "The 'entra' profile is active but ENTRA_TENANT_ID is unset or still the "
+                            + "REPLACE_WITH_ENTRA_DIRECTORY_TENANT_ID placeholder from values.yaml. "
+                            + "Without it there is no issuer to validate against.");
+        }
+    }
+
+    /**
+     * Refuses an {@code entra} startup with no audience configured.
+     *
+     * <p>This is the third of the three claims a resource server has to check.
+     * Signature and issuer alone accept any token minted for any application in
+     * the directory, because Entra shares one signing key set across tenants and
+     * issuer only tells you the directory, not the intended recipient. That
+     * failure is invisible: every request carries a valid token, so nothing 401s
+     * and nothing alarms.
+     */
+    private void requireAudience() {
+        String audience = environment.getProperty("ENTRA_AUDIENCE");
+        if (audience == null || audience.isBlank()) {
+            throw new IllegalStateException(
+                    "The 'entra' profile is active but ENTRA_AUDIENCE is unset. The decoder would "
+                            + "validate signature and issuer but accept a token minted for any other "
+                            + "application in this directory. Set the API's Application ID URI "
+                            + "(or its client-id GUID) as ENTRA_AUDIENCE, e.g. with "
+                            + "--set global.entraAudience=<api-application-id>.");
+        }
+    }
+
+    private boolean isEntraProfileActive() {
+        return Arrays.stream(environment.getActiveProfiles())
+                .anyMatch(profile -> "entra".equalsIgnoreCase(profile));
     }
 
     /**

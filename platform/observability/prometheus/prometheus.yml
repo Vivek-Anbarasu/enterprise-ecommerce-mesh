@@ -1,17 +1,24 @@
-# Prometheus scrape configuration.
+# Prometheus scrape configuration — LOCAL DEVELOPMENT ONLY.
 #
-# Kubernetes SD is used rather than static targets so services are discovered
-# and removed automatically. Relabelling keeps application/environment/tier
-# consistent with the common tags the services set in Micrometer.
+# This file is mounted by docker-compose.yml and is read by nothing in AKS.
+# Production metrics go to Azure Monitor managed service for Prometheus, which
+# consumes the PodMonitor and PrometheusRule objects in
+# platform/observability/amp/ and does not read a prometheus.yml at all.
+#
+# Kept because the local stack is genuinely useful and still works. It is not a
+# description of the production system and must not be edited as if it were.
+#
+# The recording and alerting rules that used to sit alongside this file have moved
+# to platform/observability/amp/rules.yaml. They are NOT duplicated here: a rule
+# defined in two places drifts, and the copy nobody remembers is the one that
+# silently stops matching. Local development therefore has metrics and dashboards
+# but no alerting, which is the right trade for a dev stack.
 global:
   scrape_interval: 15s
   evaluation_interval: 30s
   external_labels:
-    cluster: ecommerce-aks
-    environment: production
-
-rule_files:
-  - /etc/prometheus/rules/*.yml
+    cluster: ecommerce-local
+    environment: local
 
 scrape_configs:
   - job_name: prometheus

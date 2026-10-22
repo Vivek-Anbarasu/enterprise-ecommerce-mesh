@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
@@ -22,6 +23,7 @@ import com.enterprise.mesh.inventoryservice.exception.InsufficientStockException
 import com.enterprise.mesh.inventoryservice.repository.InventoryItemRepository;
 import com.enterprise.mesh.inventoryservice.repository.InventoryReservationLineRepository;
 import com.enterprise.mesh.inventoryservice.repository.InventoryReservationRepository;
+import com.enterprise.mesh.observability.BusinessMetrics;
 
 /**
  * Stock reservation lifecycle: reserve -> confirm (paid) or release (abandoned).
@@ -47,6 +49,7 @@ public class InventoryService {
     private final InventoryReservationRepository reservationRepository;
     private final InventoryReservationLineRepository lineRepository;
     private final StockMutationService mutationService;
+    private final BusinessMetrics businessMetrics;
     /**
      * Holds stock for every requested line, or holds nothing.
      *
@@ -258,6 +261,13 @@ public class InventoryService {
             } catch (OptimisticLockingFailureException
                      | jakarta.persistence.OptimisticLockException e) {
                 lastFailure = e;
+                // Contention here means real shoppers are being turned away, so it
+                // is published rather than left in the log: InventoryLockContention
+                // in platform/observability/amp/rules.yaml evaluates this exact
+                // metric name and had no emitter,
+                // which meant the rule could never fire.
+                businessMetrics.increment("inventory_concurrent_update_total",
+                        Map.of("action", action.name()));
                 log.warn("Optimistic lock conflict on SKU {} (attempt {}/{})",
                         sku, attempt, MAX_LOCK_RETRIES);
             }

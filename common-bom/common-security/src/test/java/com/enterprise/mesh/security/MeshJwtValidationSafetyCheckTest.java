@@ -107,11 +107,24 @@ class MeshJwtValidationSafetyCheckTest {
     @Test
     void entraProfileBuildsDecoderFromTenantId() {
         runner.withPropertyValues("spring.profiles.active=entra",
-                        "ENTRA_TENANT_ID=11111111-2222-3333-4444-555555555555")
+                        "ENTRA_TENANT_ID=11111111-2222-3333-4444-555555555555",
+                        "ENTRA_AUDIENCE=api://11111111-2222-3333-4444-555555555555")
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context).hasSingleBean(JwtDecoder.class);
                 });
+    }
+
+    @Test
+    void entraProfileWithoutAudienceFailsFast() {
+        // Signature and issuer are not the whole check: without `aud` a token
+        // minted for an unrelated application in the same directory is accepted.
+        runner.withPropertyValues("spring.profiles.active=entra",
+                        "ENTRA_TENANT_ID=11111111-2222-3333-4444-555555555555")
+                .run(context -> assertThat(context)
+                        .hasFailed()
+                        .getFailure()
+                        .hasMessageContaining("ENTRA_AUDIENCE"));
     }
 
     @Test
@@ -125,7 +138,8 @@ class MeshJwtValidationSafetyCheckTest {
 
         runner.withBean(JwtDecoder.class, () -> operatorSupplied)
                 .withPropertyValues("spring.profiles.active=entra",
-                        "ENTRA_TENANT_ID=11111111-2222-3333-4444-555555555555")
+                        "ENTRA_TENANT_ID=11111111-2222-3333-4444-555555555555",
+                        "ENTRA_AUDIENCE=api://11111111-2222-3333-4444-555555555555")
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context).hasSingleBean(JwtDecoder.class);

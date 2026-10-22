@@ -18,6 +18,8 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
 
+import com.enterprise.mesh.observability.TraceIds;
+
 /**
  * Returns RFC 9457 {@code application/problem+json} instead of Spring's default
  * HTML error page, so gateway and SDK clients get a predictable contract.
@@ -28,6 +30,8 @@ public class ProblemDetailAuthenticationEntryPoint implements AuthenticationEntr
 
     private final ObjectMapper objectMapper;
     private final URI problemBaseUri;
+    private final TraceIds traceIds;
+
     @Override
     public void commence(HttpServletRequest request, HttpServletResponse response,
                          AuthenticationException authException) throws IOException {
@@ -42,9 +46,10 @@ public class ProblemDetailAuthenticationEntryPoint implements AuthenticationEntr
         problem.setType(problemBaseUri.resolve("unauthorized"));
         problem.setInstance(URI.create(path));
 
+        // Omitted rather than written as "null" when nothing is being traced.
         Map<String, Object> extra = new LinkedHashMap<>();
         extra.put("path", path);
-        extra.put("traceId", org.slf4j.MDC.get("trace_id"));
+        traceIds.applyTo(extra);
         problem.setProperties(extra);
 
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);

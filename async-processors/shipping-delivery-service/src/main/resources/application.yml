@@ -35,6 +35,10 @@ spring:
       # these offsets is mesh.shipping.consumer-group, on the annotation.
       auto-offset-reset: earliest
       enable-auto-commit: false
+    properties:
+      security.protocol: ${KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
+      sasl.mechanism: ${KAFKA_SASL_MECHANISM:PLAIN}
+      sasl.jaas.config: ${KAFKA_SASL_JAAS_CONFIG:}
     ssl:
       trust-store-location: ${KAFKA_TRUSTSTORE_LOCATION:}
 
@@ -77,7 +81,7 @@ management:
       probability: ${TRACING_SAMPLE_RATE:0.1}
   otlp:
     tracing:
-      endpoint: ${OTLP_ENDPOINT:http://jaeger-collector.observability.svc.cluster.local:4318/v1/traces}
+      endpoint: ${OTLP_ENDPOINT:http://localhost:4318/v1/traces}
 
 springdoc:
   api-docs:

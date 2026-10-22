@@ -1,0 +1,36 @@
+# Tracing provider for the Istio control plane.
+#
+# This is an istiod VALUES FRAGMENT, not a Kubernetes object. It is deliberately
+# kept out of deploy/helm/enterprise-ecommerce, which renders only namespaced
+# objects and cannot install or reconfigure the control plane it runs inside.
+#
+# It exists because a `Telemetry` resource may only reference a tracing provider
+# by name, and the name must resolve to something in istiod's MeshConfig. There
+# is no partial-credit failure mode here: reference a provider that is not
+# defined and istioctl rejects the Telemetry resource outright, so mesh tracing
+# silently never turns on.
+#
+# Apply BEFORE deploying the application chart with istio.tracingProvider set:
+#
+#   helm upgrade istiod istio/istiod -n istio-system -f deploy/istiod/meshconfig-tracing.yaml
+#
+# Verify the provider landed before blaming the application chart:
+#
+#   kubectl -n istio-system get cm istio -o jsonpath='{.data.mesh}' | grep -A5 extensionProviders
+#
+# The destination is the in-cluster OpenTelemetry Collector
+# (platform/observability/otel-collector), not Application Insights directly.
+# Azure Monitor's OTLP ingest path is authenticated and Istio's extension
+# provider cannot attach a credential, so the collector is what terminates OTLP
+# here and exports onward with its own connection string.
+meshConfig:
+  extensionProviders:
+    - name: otel-collector
+      openTelemetry:
+        service: otel-collector.observability.svc.cluster.local
+        # gRPC OTLP. The applications export over HTTP to 4318
+        # (management.otlp.tracing.endpoint in every application.yml); the
+        # collector accepts both, and Istio's provider is configured
+        # per-protocol, so this port is NOT interchangeable with the
+        # applications' 4318.
+        port: 4317

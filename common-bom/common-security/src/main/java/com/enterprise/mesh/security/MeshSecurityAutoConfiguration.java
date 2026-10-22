@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
@@ -27,6 +28,11 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2TokenValidator;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtClaimNames;
+import org.springframework.security.oauth2.jwt.JwtClaimValidator;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
@@ -38,6 +44,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import com.enterprise.mesh.observability.TraceIds;
 import com.enterprise.mesh.security.handler.ProblemDetailAccessDeniedHandler;
 import com.enterprise.mesh.security.handler.ProblemDetailAuthenticationEntryPoint;
 import com.enterprise.mesh.security.tenant.TenantContextFilter;
@@ -119,20 +126,51 @@ public class MeshSecurityAutoConfiguration {
         String issuer = "https://login.microsoftonline.com/" + tenantId + "/v2.0";
         String jwkSetUri = "https://login.microsoftonline.com/" + tenantId + "/discovery/v2.0/keys";
 
-        log.info("Resource server configured for Entra directory {}: forwarded bearer tokens "
-                + "are validated against issuer '{}'.", tenantId, issuer);
-
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(jwkSetUri).build();
 
-        // Both halves are needed and they do different jobs. The JWK set supplies
-        // the signing keys; the issuer validator is what rejects a token whose
-        // `iss` is some other directory. Validating the signature alone is the
-        // dangerous shortcut, because Entra signs every tenant's tokens with a
-        // shared key set - so a perfectly valid token minted by a stranger's
-        // Azure AD directory would be accepted, and TenantContextFilter would
-        // turn its tenant_id claim into a TENANT_* authority for this mesh.
-        decoder.setJwtValidator(JwtValidators.createDefaultWithIssuer(issuer));
+        // Three checks, and they do different jobs. The JWK set supplies the
+        // signing keys; the issuer validator rejects a token whose `iss` is some
+        // other directory; the audience validator rejects a token that is
+        // cryptographically valid but was minted for a different API. Signature
+        // plus issuer alone is the dangerous shortcut: Entra signs every tenant's
+        // tokens with a shared key set, and a token issued to an unrelated
+        // application in the same directory still carries this tenant's issuer.
+        List<OAuth2TokenValidator<Jwt>> validators = new ArrayList<>();
+        validators.add(JwtValidators.createDefaultWithIssuer(issuer));
+
+        List<String> audiences = audiences(environment);
+        if (!audiences.isEmpty()) {
+            validators.add(new JwtClaimValidator<List<String>>(JwtClaimNames.AUD,
+                    tokenAudiences -> tokenAudiences != null
+                            && tokenAudiences.stream().anyMatch(audiences::contains)));
+        }
+        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(validators));
+
+        if (audiences.isEmpty()) {
+            log.warn("Audience validation is DISABLED for the entra profile: ENTRA_AUDIENCE is unset. "
+                    + "Issuer and signature are still checked, but a token minted for any other "
+                    + "application in directory {} would be accepted.", tenantId);
+        } else {
+            log.info("Resource server configured for Entra directory {}: forwarded bearer tokens "
+                    + "are validated against issuer '{}' and audience(s) {}.", tenantId, issuer, audiences);
+        }
         return decoder;
+    }
+
+    /**
+     * Accepted {@code aud} values, from {@code ENTRA_AUDIENCE} (comma-delimited).
+     *
+     * <p>One API registration backs the whole mesh, so this is one value rather
+     * than a per-service setting. Empty means no audience check, which is why
+     * {@link MeshJwtValidationSafetyCheck} refuses to start under the
+     * {@code entra} profile when it is unset.
+     */
+    private List<String> audiences(Environment environment) {
+        String raw = environment.getProperty("ENTRA_AUDIENCE", "");
+        return Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .toList();
     }
 
     /**
@@ -196,16 +234,27 @@ public class MeshSecurityAutoConfiguration {
         return new TenantAllowListSafetyCheck(environment, properties);
     }
 
+    /**
+     * {@code TraceIds} is looked up rather than required. The observability
+     * auto-configuration owns it, but it is a convenience for whoever reads an
+     * error body, not a security control — a context that loads this
+     * configuration without it must still boot and still return problem
+     * documents, just without a trace id in them.
+     */
     @Bean
     @ConditionalOnMissingBean
-    public ProblemDetailAuthenticationEntryPoint meshAuthenticationEntryPoint(ObjectMapper objectMapper) {
-        return new ProblemDetailAuthenticationEntryPoint(objectMapper, PROBLEM_BASE_URI);
+    public ProblemDetailAuthenticationEntryPoint meshAuthenticationEntryPoint(
+            ObjectMapper objectMapper, ObjectProvider<TraceIds> traceIds) {
+        return new ProblemDetailAuthenticationEntryPoint(objectMapper, PROBLEM_BASE_URI,
+                traceIds.getIfAvailable(TraceIds::none));
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public ProblemDetailAccessDeniedHandler meshAccessDeniedHandler(ObjectMapper objectMapper) {
-        return new ProblemDetailAccessDeniedHandler(objectMapper, PROBLEM_BASE_URI);
+    public ProblemDetailAccessDeniedHandler meshAccessDeniedHandler(
+            ObjectMapper objectMapper, ObjectProvider<TraceIds> traceIds) {
+        return new ProblemDetailAccessDeniedHandler(objectMapper, PROBLEM_BASE_URI,
+                traceIds.getIfAvailable(TraceIds::none));
     }
 
     @Bean

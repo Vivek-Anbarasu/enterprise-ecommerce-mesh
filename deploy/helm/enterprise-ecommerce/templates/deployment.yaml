@@ -69,6 +69,12 @@ spec:
         # labels with this one changed, which is what the -stable and -canary
         # Services select on (see templates/canary.yaml).
         mesh.enterprise-ecommerce.io/rollout: {{ $rollout }}
+        {{- if $isHeadless }}
+        # Consumed by platform/observability/amp/podmonitors.yaml. A headless
+        # pod has no business port, so it needs its own PodMonitor on the
+        # management port rather than the namespace-wide `port: http` target.
+        app.kubernetes.io/headless: "true"
+        {{- end }}
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/path: /actuator/prometheus

@@ -15,8 +15,17 @@ global:
   # 10% on request paths is enough to diagnose an incident without the storage
   # cost of full tracing.
   tracingSampleRate: "0.1"
-  otlpEndpoint: http://jaeger-collector.observability.svc.cluster.local:4318/v1/traces
+  otlpEndpoint: http://otel-collector.observability.svc.cluster.local:4318/v1/traces
   tenantDefault: public
+  # The `aud` claim every service and the gateway require. One API registration
+  # backs the mesh, so supply it once for the whole release:
+  #
+  #   --set global.entraAudience=api://<api-client-id>
+  #
+  # Left empty here because it identifies a real app registration, exactly like
+  # ENTRA_TENANT_ID. The entra guard refuses to start when it is unset rather
+  # than dropping the audience check silently.
+  entraAudience: ""
   imagePullSecrets:
     - name: acr-pull
 
@@ -26,6 +35,21 @@ istio:
     enabled: true
     name: waypoint
     replicas: 3
+  # Mesh tracing: the waypoint contributes spans alongside the application's own
+  # OTel spans, so HBONE queueing, mTLS handshake time and retry/timeout budgets
+  # become visible with timings Micrometer cannot measure.
+  #
+  # PREREQUISITE. The provider named here must already exist in istiod's
+  # MeshConfig, or istioctl rejects the whole Telemetry resource and mesh tracing
+  # is silently off with nothing in the logs:
+  #
+  #   helm upgrade istiod istio/istiod -n istio-system \
+  #     -f deploy/istiod/meshconfig-tracing.yaml
+  #
+  # See deploy/istiod/README.md for what this does and does not cover - in
+  # particular ztunnel never emits spans, and neither api-gateway nor
+  # bff-service has a waypoint to emit them from.
+  tracingProvider: otel-collector
 
 keyVault:
   enabled: true
@@ -70,10 +94,23 @@ infrastructure:
   redis:
     host: ecommerce-cache.redis.cache.windows.net
     port: 6380
+    # Azure Cache for Redis terminates TLS on 6380. Leaving this false connects
+    # in plaintext to a port that only speaks TLS, which fails at startup rather
+    # than silently downgrading.
+    ssl: true
   kafka:
-    # Azure Service Bus Kafka-compatible endpoint. Prefer this over an in-cluster
+    # Azure  Event Hubs  Kafka-compatible endpoint. Prefer this over an in-cluster
     # Kafka: broker state leaves the cluster and reserved throughput is explicit.
     bootstrapServers: "ecommerce.servicebus.windows.net:9093"
+    # Event Hubs does not accept plaintext on :9093. SASL_SSL/PLAIN with the
+    # namespace connection string is the supported path; OAUTHBEARER via managed
+    # identity is the alternative once workload identity is wired in.
+    securityProtocol: SASL_SSL
+    saslMechanism: PLAIN
+    # Suffix only: the chart looks for <release>-<this>. The Secret holds the
+    # complete JAAS line in the `jaas-config` key and is never committed.
+    jaasSecretName: kafka-sasl
+    jaasSecretKey: jaas-config
   mongodb:
     uri: ""
 
@@ -207,11 +244,8 @@ pdb:
   enabled: true
   minAvailable: 1
 
-observability:
-  prometheus:
-    enabled: true
-    retention: 30d
-  grafana:
-    enabled: true
-  jaeger:
-    enabled: true
+# Observability is not configured here. Metrics go to Azure Monitor managed
+# service for Prometheus and traces to Application Insights; both are Azure
+# resources provisioned from deploy/azure/, not Helm values. The block that used
+# to be here toggled three flags no template read, which made an absent
+# observability stack look like a configuration choice.

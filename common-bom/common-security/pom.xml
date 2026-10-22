@@ -18,6 +18,16 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
+        <!-- The RFC 9457 handlers put the active trace id in every error body.
+             Dependency direction is deliberate: observability depends on
+             security's identity concepts, never the reverse, so the trace id is
+             resolved by the module that owns tracing rather than duplicated here.
+             Every service that depends on common-security already depends on
+             common-observability, so this adds no new transitive weight. -->
+        <dependency>
+            <groupId>com.enterprise.mesh</groupId>
+            <artifactId>common-observability</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>

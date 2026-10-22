@@ -77,8 +77,35 @@ service-specific extras in .service.extraEnv.
   value: {{ .root.Values.infrastructure.redis.host | quote }}
 - name: REDIS_PORT
   value: {{ .root.Values.infrastructure.redis.port | quote }}
+- name: REDIS_SSL_ENABLED
+  value: {{ .root.Values.infrastructure.redis.ssl | default false | quote }}
 - name: KAFKA_BOOTSTRAP_SERVERS
   value: {{ .root.Values.infrastructure.kafka.bootstrapServers | quote }}
+{{- /*
+  Kafka transport. Local Docker Kafka is PLAINTEXT; Azure Event Hubs exposes the
+  same API only over SASL_SSL on :9093. The JAAS string contains the connection
+  string, so it is read from a Secret and never rendered from values.
+*/}}
+{{- $kafka := .root.Values.infrastructure.kafka }}
+{{- if $kafka.securityProtocol }}
+- name: KAFKA_SECURITY_PROTOCOL
+  value: {{ $kafka.securityProtocol | quote }}
+{{- end }}
+{{- if $kafka.saslMechanism }}
+- name: KAFKA_SASL_MECHANISM
+  value: {{ $kafka.saslMechanism | quote }}
+{{- end }}
+{{- if $kafka.jaasSecretName }}
+- name: KAFKA_SASL_JAAS_CONFIG
+  valueFrom:
+    secretKeyRef:
+      name: {{ printf "%s-%s" .root.Release.Name $kafka.jaasSecretName | quote }}
+      key: {{ $kafka.jaasSecretKey | default "jaas-config" | quote }}
+{{- end }}
+{{- if .root.Values.global.entraAudience }}
+- name: ENTRA_AUDIENCE
+  value: {{ .root.Values.global.entraAudience | quote }}
+{{- end }}
 {{- /*
   Tenant allow-list, as a comma-delimited value Spring binds to
   mesh.tenant.allowed. Emitted only when non-empty so that an empty list stays
