@@ -13,11 +13,14 @@ import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import com.enterprise.mesh.messaging.MessagingTopics;
 import com.enterprise.mesh.messaging.event.EventMetadata;
+import com.enterprise.mesh.observability.BusinessMetrics;
 import com.enterprise.mesh.order.api.OrderDtos.LineRequest;
 import com.enterprise.mesh.order.api.OrderDtos.OrderCreatedEvent;
 import com.enterprise.mesh.order.api.OrderDtos.OrderResponse;
@@ -51,15 +54,18 @@ public class CheckoutSagaOrchestrator {
     private final OrderRepository orderRepository;
     private final OutboxService outboxService;
     private final RestClient restClient;
+    private final BusinessMetrics businessMetrics;
     private final Duration reservationTtl;
 
     public CheckoutSagaOrchestrator(OrderRepository orderRepository,
                                     OutboxService outboxService,
                                     RestClient.Builder restClientBuilder,
+                                    BusinessMetrics businessMetrics,
                                     @Value("${mesh.saga.reservation-ttl-seconds:900}") long reservationTtlSeconds) {
         this.orderRepository = orderRepository;
         this.outboxService = outboxService;
         this.restClient = restClientBuilder.build();
+        this.businessMetrics = businessMetrics;
         this.reservationTtl = Duration.ofSeconds(reservationTtlSeconds);
     }
 
@@ -108,7 +114,9 @@ public class CheckoutSagaOrchestrator {
                     new OrderStatusEvent(orderId, order.getCustomerId(), "PENDING",
                             order.getStatus().name(), "stock reservation failed", Instant.now()),
                     order, "order.failed", correlationId);
-            return OrderResponse.from(orderRepository.save(order));
+            OrderResponse response = OrderResponse.from(orderRepository.save(order));
+            businessMetrics.recordOutcome("orders", "stock_unavailable");
+            return response;
         }
 
         // ---- Step 2: authorise payment ---------------------------------
@@ -124,11 +132,21 @@ public class CheckoutSagaOrchestrator {
                     new OrderStatusEvent(orderId, order.getCustomerId(), "RESERVED",
                             order.getStatus().name(), "payment declined", Instant.now()),
                     order, "order.failed", correlationId);
-            return OrderResponse.from(orderRepository.save(order));
+            OrderResponse response = OrderResponse.from(orderRepository.save(order));
+            businessMetrics.recordOutcome("orders", "payment_failed");
+            return response;
         }
 
         // ---- Step 3: commit the stock hold -------------------------------
-        confirmReservation(order, tenantId);
+        try {
+            confirmReservation(order, tenantId);
+        } catch (RuntimeException e) {
+            // The order is about to roll back and the customer sees an error.
+            // Count it as a failed checkout so the conversion ratio reflects it;
+            // a 5xx-only view would miss a saga that failed after authorisation.
+            businessMetrics.recordOutcome("orders", "confirm_failed");
+            throw e;
+        }
 
         // ---- Step 4: persist and emit -------------------------------------
         Order saved;
@@ -179,13 +197,36 @@ public class CheckoutSagaOrchestrator {
             // so fulfilment and notification never learn the order existed. The
             // event must therefore be written in its own transaction or it would
             // roll back with everything else.
+            businessMetrics.recordOutcome("orders", "commit_failed");
             publishCommitFailure(order, tenantId, correlationId, e);
             throw e;
         }
 
         log.info("Checkout completed order={} total={} {} customer={}",
                 saved.getId(), saved.getTotalAmount(), saved.getCurrency(), saved.getCustomerId());
+        recordOutcomeAfterCommit("paid");
         return OrderResponse.from(saved);
+    }
+
+    /**
+     * Records the successful checkout only after the transaction commits.
+     *
+     * <p>The counter is in-memory and is not rolled back with the database
+     * transaction. Recording `paid` before the commit would count an order that
+     * a constraint violation or a failed commit then discarded, which is exactly
+     * the kind of false "healthy" signal the conversion alert must not produce.
+     */
+    private void recordOutcomeAfterCommit(String outcome) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    businessMetrics.recordOutcome("orders", outcome);
+                }
+            });
+        } else {
+            businessMetrics.recordOutcome("orders", outcome);
+        }
     }
 
     /** Reserves the stock hold for the order's lines. */

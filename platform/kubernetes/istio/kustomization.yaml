@@ -9,6 +9,11 @@
 # The Helm chart (deploy/helm/enterprise-ecommerce) renders the same objects
 # from values, and is what a real deployment should use. This overlay exists so
 # the mesh configuration can be read and audited with plain kubectl.
+#
+# One deliberate exception: mesh TRACING is commented out in policies.yaml rather
+# than rendered. It depends on a provider defined in istiod's MeshConfig, which
+# kustomize cannot parameterise and which an undefined name would fail on by
+# rejecting the whole Telemetry resource. See deploy/istiod/README.md.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 

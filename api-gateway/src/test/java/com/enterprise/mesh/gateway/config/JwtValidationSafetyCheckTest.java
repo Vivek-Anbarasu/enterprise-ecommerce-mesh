@@ -38,6 +38,7 @@ class JwtValidationSafetyCheckTest {
         if (tenantId != null) {
             environment.setProperty("ENTRA_TENANT_ID", tenantId);
         }
+        environment.setProperty("ENTRA_AUDIENCE", "api://11111111-1111-1111-1111-111111111111");
         return environment;
     }
 
@@ -153,6 +154,19 @@ class JwtValidationSafetyCheckTest {
                 entraEnv("REPLACE_WITH_ENTRA_DIRECTORY_TENANT_ID"), decoderPresent()).afterPropertiesSet())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("placeholder");
+    }
+
+    @Test
+    @DisplayName("the entra profile without an audience fails startup")
+    void entraWithoutAudienceFails() {
+        // Signature + issuer alone accept a token minted for any other
+        // application in the same directory. That is a silent, valid-looking
+        // credential, so the missing check has to stop the pod.
+        MockEnvironment environment = entraEnv("11111111-1111-1111-1111-111111111111");
+        environment.setProperty("ENTRA_AUDIENCE", "");
+        assertThatThrownBy(() -> check(environment, decoderPresent()).afterPropertiesSet())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("ENTRA_AUDIENCE");
     }
 
     @Test

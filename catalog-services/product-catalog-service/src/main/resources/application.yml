@@ -19,6 +19,9 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      # Azure Cache for Redis only accepts TLS on 6380.
+      ssl:
+        enabled: ${REDIS_SSL_ENABLED:false}
       timeout: 1s
       lettuce:
         pool:
@@ -34,6 +37,16 @@ spring:
     # this file would look effective and change nothing.
   elasticsearch:
     uris: ${ELASTICSEARCH_URIS:}
+  kafka:
+    # This service has no consumers; the block exists because it publishes
+    # product.events. Bootstrap servers must be explicit: Boot's default is
+    # localhost:9092, and KAFKA_BOOTSTRAP_SERVERS alone does not bind to
+    # spring.kafka.bootstrap-servers.
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    properties:
+      security.protocol: ${KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
+      sasl.mechanism: ${KAFKA_SASL_MECHANISM:PLAIN}
+      sasl.jaas.config: ${KAFKA_SASL_JAAS_CONFIG:}
 
 mesh:
   environment: ${MESH_ENV:local}
@@ -66,7 +79,7 @@ management:
       probability: ${TRACING_SAMPLE_RATE:0.1}
   otlp:
     tracing:
-      endpoint: ${OTLP_ENDPOINT:http://jaeger-collector.observability.svc.cluster.local:4318/v1/traces}
+      endpoint: ${OTLP_ENDPOINT:http://localhost:4318/v1/traces}
 
 springdoc:
   api-docs:

@@ -14,10 +14,19 @@ datasources:
     access: proxy
     url: http://jaeger-collector.observability.svc.cluster.local:14268
     jsonData:
-      tracesToLogsV2:
-        datasourceUid: Prometheus
-        spanStartTimeShift: -1m
-        spanEndTimeShift: 1m
-        tags: [{ key: "service.name", value: "app" }]
+      # `tracesToLogsV2` is deliberately absent. It needs a datasource that
+      # actually serves logs, and this configuration previously pointed it at
+      # Prometheus - a metrics-only backend. Grafana accepts the config and then
+      # silently returns nothing, so trace-to-log correlation looked configured
+      # and never worked.
+      #
+      # It stays absent until a logs backend exists. When one does, add the
+      # datasource here and restore the block with its uid:
+      #
+      #   tracesToLogsV2:
+      #     datasourceUid: <logs-datasource-uid>
+      #     spanStartTimeShift: -1m
+      #     spanEndTimeShift: 1m
+      #     tags: [{ key: "service.name", value: "app" }]
       nodeGraph:
         enabled: true

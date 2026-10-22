@@ -86,3 +86,48 @@ Azure docs as an `IPMatch` against `255.255.255.255/32` with negation on, which 
 a trap: get the CIDR wrong and the rule blocks 100% of traffic with no rate
 limiting at all. Matching on path needs no IP range, which also removes the IPv6
 equivalent trap where `0.0.0.0/0` alone silently exempts every v6 client.
+
+## `alerting.bicep`
+
+Creates the Azure Monitor action groups and the
+`Microsoft.AlertsManagement/prometheusRuleGroups` resource that evaluates the
+PromQL catalogue in `platform/observability/amp/rules.yaml`.
+
+### Why this is not in the chart
+
+Azure Monitor managed Prometheus does **not** evaluate `PrometheusRule` custom
+resources. The rule group and its action groups are Azure resources, so no
+Kubernetes manifest can create them. `kubectl apply -f platform/observability/amp/`
+applies only the `PodMonitor` resources; the rules are deployed here.
+
+### Deploy
+
+```bash
+az deployment group create \
+  --resource-group rg-ecommerce-prod \
+  --template-file deploy/bicep/alerting.bicep \
+  --parameters azureMonitorWorkspaceId=<amw-resource-id> \
+               aksClusterId=<aks-resource-id> \
+               criticalEmails='["oncall@example.com"]' \
+               criticalSms='[{"countryCode":"1","phoneNumber":"+15555550100"}]' \
+               warningEmails='["platform@example.com"]'
+```
+
+`criticalEmails`, `criticalSms` and `warningEmails` are arrays. At least one
+critical receiver is required; an action group with no receivers makes an alert
+fire into an empty room.
+
+### ACS Email is a bridge, not a receiver
+
+Azure Monitor action groups have no native Azure Communication Services Email
+receiver. If you want ACS-branded email, deploy a Logic App or Function that
+calls the ACS Email API and pass its URL as `acsWebhookUrl`. The action group
+then uses a webhook receiver. Native email + SMS/voice is simpler and is the
+recommended baseline for paging.
+
+### What this file does not create
+
+Database availability, Key Vault certificate expiry, Resource Health and
+synthetic edge checks are not PromQL rules. Add them as Azure Monitor platform
+alerts, Resource Health alerts or availability tests. Forcing them into the
+Prometheus rule group would create alerts that never evaluate.

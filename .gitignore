@@ -1,0 +1,30 @@
+# Build output
+target/
+*.jar
+*.jar.original
+.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.classpath
+.project
+.settings/
+
+# Logs / OS
+*.log
+.DS_Store
+Thumbs.db
+
+# Local env / secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore

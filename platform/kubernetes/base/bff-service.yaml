@@ -54,7 +54,7 @@ data:
   ENTRA_TENANT_ID: "PLACEHOLDER_ENTRA_DIRECTORY_TENANT_ID"
   # Must match the redirect URI registered on the Entra app registration exactly.
   ENTRA_REDIRECT_URI: "https://shop.enterprise-ecommerce.com/bff/oauth2/callback/entra"
-  OTLP_ENDPOINT: "http://jaeger-collector.observability.svc.cluster.local:4318/v1/traces"
+  OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4318/v1/traces"
   LOG_FORMAT: "ecs"
   LOG_LEVEL_ROOT: "INFO"
   # `entra` is the profile carrying the OAuth2 client registration. It is a

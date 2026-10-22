@@ -11,9 +11,9 @@ import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
-
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -30,6 +30,7 @@ import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.kafka.listener.ContainerProperties;
+import org.springframework.kafka.listener.ConsumerRecordRecoverer;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.support.serializer.DeserializationException;
@@ -41,6 +42,8 @@ import org.springframework.util.backoff.FixedBackOff;
 import com.enterprise.mesh.messaging.MessagingTopics;
 import com.enterprise.mesh.messaging.publisher.EventPublisher;
 import com.enterprise.mesh.messaging.publisher.KafkaEventPublisher;
+import com.enterprise.mesh.messaging.recovery.MetricsCountingConsumerRecordRecoverer;
+import com.enterprise.mesh.observability.BusinessMetrics;
 
 /**
  * Kafka defaults for the mesh: JSON payloads, keyed partitioning, at-least-once
@@ -111,7 +114,8 @@ public class MeshMessagingAutoConfiguration {
     public ConcurrentKafkaListenerContainerFactory<String, Object> kafkaListenerContainerFactory(
             ConsumerFactory<String, Object> consumerFactory,
             KafkaTemplate<String, Object> kafkaTemplate,
-            MeshMessagingProperties meshProperties) {
+            MeshMessagingProperties meshProperties,
+            ObjectProvider<BusinessMetrics> businessMetrics) {
 
         ConcurrentKafkaListenerContainerFactory<String, Object> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
@@ -123,10 +127,16 @@ public class MeshMessagingAutoConfiguration {
 
         // Retry transiently, then divert to <topic>.dlq so one bad message cannot
         // block the partition forever.
-        DeadLetterPublishingRecoverer recoverer =
+        DeadLetterPublishingRecoverer deadLetterRecoverer =
                 new DeadLetterPublishingRecoverer(kafkaTemplate,
                         (record, exception) -> new TopicPartition(
                                 MessagingTopics.deadLetter(record.topic()), record.partition()));
+
+        // Counts what actually reached the DLQ. Without an emitter the
+        // DeadLetterQueueFilling alert has no series to evaluate and can never
+        // fire, so a partition quietly wedged on poison messages looks healthy.
+        ConsumerRecordRecoverer recoverer = new MetricsCountingConsumerRecordRecoverer(
+                businessMetrics, deadLetterRecoverer);
 
         DefaultErrorHandler errorHandler = new DefaultErrorHandler(
                 recoverer,

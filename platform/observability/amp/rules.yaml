@@ -1,0 +1,358 @@
+# Alert and recording rules for Azure Monitor managed service for Prometheus.
+#
+# READABLE REFERENCE ONLY. Azure Monitor managed Prometheus does not evaluate
+# `PrometheusRule` custom resources. The deployable form of these rules is
+# deploy/bicep/alerting.bicep, which creates a
+# Microsoft.AlertsManagement/prometheusRuleGroups resource and attaches action
+# groups. `kustomization.yaml` deliberately excludes this file: applying it
+# would create an object nothing evaluates.
+#
+# Keep this file and alerting.bicep in sync. The rule names and PromQL must
+# match; the Bicep file is what actually runs.
+#
+# Two things deliberately do not exist in this file:
+#
+#   * No Alertmanager. The rule group emits Azure Monitor alerts; delivery
+#     needs an action group. alerting.bicep creates critical and warning action
+#     groups and attaches them to every rule.
+#
+#   * No metric this platform does not emit. A rule over a missing series
+#     evaluates to empty forever and reads as coverage in a review. Two such
+#     rules - InventoryLockContention and DeadLetterQueueFilling - previously
+#     referenced metrics nothing published; both now have emitters in
+#     InventoryService and MetricsCountingConsumerRecordRecoverer, and
+#     BusinessMetricsTest pins the names against this file.
+#
+# Deploy:
+#   az deployment group create \
+#     --resource-group rg-ecommerce-prod \
+#     --template-file deploy/bicep/alerting.bicep \
+#     --parameters azureMonitorWorkspaceId=<id> aksClusterId=<id> \
+#                  criticalEmails='["oncall@example.com"]' \
+#                  warningEmails='["platform@example.com"]'
+#
+# The CRD shape below is retained only so the file is readable to anyone who
+# knows prometheus-operator. It is not applied.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mesh-recording
+  namespace: ecommerce
+  labels:
+    app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+spec:
+  groups:
+    # ---- Recording rules: expensive queries computed once, reused by rules.
+    - name: mesh-recording
+      interval: 30s
+      rules:
+        - record: service:http_requests:rate5m
+          expr: sum by (application) (rate(http_server_requests_seconds_count{namespace="ecommerce"}[5m]))
+
+        - record: service:http_errors:rate5m
+          expr: sum by (application) (rate(http_server_requests_seconds_count{status=~"5..",namespace="ecommerce"}[5m]))
+
+        - record: service:latency:p95
+          expr: |
+            histogram_quantile(0.95,
+              sum by (application, le) (rate(http_server_requests_seconds_bucket{namespace="ecommerce"}[5m])))
+
+        - record: service:latency:p99
+          expr: |
+            histogram_quantile(0.99,
+              sum by (application, le) (rate(http_server_requests_seconds_bucket{namespace="ecommerce"}[5m])))
+
+        - record: service:error_ratio:rate5m
+          expr: |
+            sum by (application) (rate(http_server_requests_seconds_count{status=~"5..",namespace="ecommerce"}[5m]))
+            /
+            clamp_min(sum by (application) (rate(http_server_requests_seconds_count{namespace="ecommerce"}[5m])), 0.001)
+
+        # Checkout success rate: orders that reached PAID, not merely HTTP 200.
+        # A failed saga returns 200-with-FAILED-status, so the HTTP error ratio
+        # would miss it entirely.
+        - record: checkout:success_ratio:rate5m
+          expr: |
+            sum(rate(mesh_business_events_total{domain="orders",outcome="paid",namespace="ecommerce"}[5m]))
+            /
+            clamp_min(sum(rate(mesh_business_events_total{domain="orders",namespace="ecommerce"}[5m])), 0.001)
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mesh-availability
+  namespace: ecommerce
+  labels:
+    app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+spec:
+  groups:
+    - name: availability-slo
+      rules:
+        - alert: ServiceHighErrorRate
+          expr: service:error_ratio:rate5m > 0.05
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "High 5xx rate on {{ $labels.application }}"
+            description: >-
+              {{ $value | humanizePercentage }} of requests to {{ $labels.application }}
+              are failing for 10 minutes. Check recent deploys and dependency health
+              before scaling.
+
+        - alert: CheckoutConversionCollapse
+          expr: |
+            (sum(rate(mesh_business_events_total{domain="orders"}[5m])) > 0)
+            and
+            (checkout:success_ratio:rate5m < 0.8)
+          for: 15m
+          labels:
+            severity: critical
+            runbook: docs/RUNBOOK.md#checkout
+          annotations:
+            summary: "Checkout success rate below 80%"
+            description: >-
+              Only {{ $value | humanizePercentage }} of checkouts are completing.
+              This is lost revenue, not just an error rate: check inventory
+              reservation failures and payment declines first.
+
+        - alert: ServiceLatencyBreached
+          expr: service:latency:p95 > 1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "p95 latency above 1s on {{ $labels.application }}"
+            description: "p95 is {{ $value }}s. Investigate slow queries and lock contention."
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mesh-inventory-and-saga
+  namespace: ecommerce
+  labels:
+    app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+spec:
+  groups:
+    - name: inventory-and-saga
+      rules:
+        # Stock contention means real shoppers are being turned away.
+        - alert: InventoryLockContention
+          expr: |
+            sum(rate(inventory_concurrent_update_total{application="inventory-service"}[5m])) > 0.5
+          for: 10m
+          labels:
+            severity: warning
+            runbook: docs/RUNBOOK.md#inventory
+          annotations:
+            summary: "High optimistic-lock contention on inventory"
+            description: >-
+              Stock rows are contended. Emitted by InventoryService#mutateWithRetry
+              on every OptimisticLockingFailureException. Consider partitioning hot
+              SKUs by warehouse or reducing the reservation TTL to shorten hold
+              duration.
+
+        # No outbox rules. Event delivery is Debezium streaming the PostgreSQL WAL,
+        # so relay lag is a Kafka Connect / Debezium metric, not something
+        # order-service exposes. Order events failing to reach fulfilment surfaces
+        # downstream, in the consumer lag alerts below.
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mesh-consumer-health
+  namespace: ecommerce
+  labels:
+    app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+spec:
+  groups:
+    - name: consumer-health
+      rules:
+        - alert: KafkaConsumerLagHigh
+          expr: |
+            sum by (application) (kafka_consumer_fetch_manager_records_lag) > 10000
+          for: 15m
+          labels:
+            severity: warning
+            runbook: docs/RUNBOOK.md#consumer-lag
+          annotations:
+            summary: "Kafka consumer lag high on {{ $labels.application }}"
+            description: >-
+              Lag is {{ $value }}. Notifications and fulfilment are falling behind
+              real time. Scale consumers or check for a poison message.
+
+        - alert: DeadLetterQueueFilling
+          expr: |
+            sum by (application) (rate(messaging_dead_letter_total[5m])) > 0.1
+          for: 10m
+          labels:
+            severity: warning
+            runbook: docs/RUNBOOK.md#dead-letter
+          annotations:
+            summary: "Messages are being dead-lettered on {{ $labels.application }}"
+            description: >-
+              Poison messages detected; inspect the .dlq topic. Emitted by the
+              common recoverer in MeshMessagingAutoConfiguration once a record has
+              exhausted its retry budget, tagged with the source topic.
+---
+# Platform and Kubernetes health.
+#
+# RESTORED. These three were removed when the self-hosted stack was assessed:
+# they evaluated kube_* metrics that nothing in this repository produced, so they
+# could never fire. Azure Monitor managed Prometheus deploys ama-metrics-ksm,
+# which supplies exactly those series, so the rules are live again.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mesh-platform
+  namespace: ecommerce
+  labels:
+    app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+spec:
+  groups:
+    - name: platform
+      rules:
+        - alert: PodCrashLooping
+          expr: |
+            sum by (namespace, pod) (increase(kube_pod_container_status_restarts_total{namespace="ecommerce"}[10m])) > 0.1
+          for: 5m
+          labels:
+            severity: warning
+            runbook: docs/RUNBOOK.md#pod-crash-looping
+          annotations:
+            summary: "Container restarting in {{ $labels.namespace }}/{{ $labels.pod }}"
+
+        - alert: NoHealthyReplicas
+          expr: |
+            max by (namespace, deployment) (kube_deployment_status_replicas_available{namespace="ecommerce"}) == 0
+          for: 5m
+          labels:
+            severity: critical
+            runbook: docs/RUNBOOK.md#no-healthy-replicas
+          annotations:
+            summary: "Deployment {{ $labels.deployment }} has no available replicas"
+
+        # Deliberately NOT the previous expression, which was
+        #   limits / requests > 0.95
+        # That is a deployment-time constant. It changes only when someone edits a
+        # Helm value, so it could not detect runtime pressure even with the metrics
+        # present, and would have fired constantly on any service configured that
+        # way. Actual memory pressure is working-set against limit.
+        - alert: MemoryPressureHigh
+          expr: |
+            sum by (namespace, pod) (container_memory_working_set_bytes{namespace="ecommerce"})
+            /
+            clamp_min(sum by (namespace, pod) (kube_pod_container_resource_limits{resource="memory", namespace="ecommerce"}), 1)
+            > 0.9
+          for: 15m
+          labels:
+            severity: warning
+            runbook: docs/RUNBOOK.md#memory-pressure
+          annotations:
+            summary: "Memory working set above 90% of limit on {{ $labels.pod }}"
+            description: >-
+              Working set is {{ $value | humanizePercentage }} of the container memory
+              limit. Expect an OOM kill if this is sustained.
+
+        - alert: KubeContainerOOMKilled
+          expr: |
+            max by (namespace, pod, container) (
+              kube_pod_container_status_last_terminated_reason{reason="OOMKilled", namespace="ecommerce"}
+            ) > 0
+          for: 5m
+          labels:
+            severity: warning
+            runbook: docs/RUNBOOK.md#memory-pressure
+          annotations:
+            summary: "Container OOMKilled in {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: >-
+              The last termination reason for this container was OOMKilled.
+              Check the heap limit and the container memory limit before raising
+              either.
+
+        - alert: KubeNodeUnreachable
+          expr: |
+            max by (node) (kube_node_status_condition{condition="Ready", status="true"}) == 0
+          for: 15m
+          labels:
+            severity: critical
+            runbook: docs/RUNBOOK.md#node-not-ready
+          annotations:
+            summary: "Node {{ $labels.node }} is not Ready"
+            description: >-
+              A node has been NotReady for 15 minutes. Workloads may be
+              rescheduled; check node health and capacity.
+
+        - alert: KubeDeploymentReplicasMismatch
+          expr: |
+            kube_deployment_status_replicas_available{namespace="ecommerce"}
+            !=
+            kube_deployment_spec_replicas{namespace="ecommerce"}
+          for: 10m
+          labels:
+            severity: warning
+            runbook: docs/RUNBOOK.md#no-healthy-replicas
+          annotations:
+            summary: "Deployment {{ $labels.deployment }} has fewer available replicas than desired"
+            description: >-
+              Available replicas do not match the spec. Check scheduling, image
+              pulls, and readiness probes.
+
+        - alert: KubeHpaMaxedOut
+          expr: |
+            kube_horizontalpodautoscaler_status_current_replicas{namespace="ecommerce"}
+            ==
+            kube_horizontalpodautoscaler_spec_max_replicas{namespace="ecommerce"}
+          for: 15m
+          labels:
+            severity: warning
+            runbook: docs/RUNBOOK.md#hpa-maxed-out
+          annotations:
+            summary: "HPA {{ $labels.horizontalpodautoscaler }} is at max replicas"
+            description: >-
+              The autoscaler has no headroom. Check whether the max is
+              intentional and whether the node pool can absorb more pods.
+---
+# BFF session health.
+#
+# These are business events, not HTTP status codes. A rejected refresh is a
+# customer losing their session, which a 5xx ratio never sees. The emitters are
+# in the BFF's session filter; the metric names are pinned by BusinessMetricsTest.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mesh-bff
+  namespace: ecommerce
+  labels:
+    app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+spec:
+  groups:
+    - name: bff
+      rules:
+        - alert: BFFRefreshRejected
+          expr: |
+            sum(rate(mesh_business_events_total{domain="bff_session",outcome="refresh_rejected"}[5m])) > 0.1
+          for: 10m
+          labels:
+            severity: warning
+            runbook: docs/BFF-SESSION.md
+          annotations:
+            summary: "BFF refresh tokens are being rejected"
+            description: >-
+              Sessions are failing to refresh. Check cookie domain, SameSite,
+              token rotation, and clock skew before blaming the identity provider.
+
+        - alert: BFFNoRefreshToken
+          expr: |
+            sum(increase(mesh_business_events_total{domain="bff_session",outcome="no_refresh_token"}[10m])) > 0
+          for: 5m
+          labels:
+            severity: warning
+            runbook: docs/BFF-SESSION.md
+          annotations:
+            summary: "BFF sessions are missing a refresh token"
+            description: >-
+              A refresh path is being reached without a refresh token. This is
+              usually a cookie or proxy configuration change, not normal
+              anonymous traffic.
+

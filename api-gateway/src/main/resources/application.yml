@@ -369,7 +369,7 @@ management:
       probability: ${TRACING_SAMPLE_RATE:0.1}
   otlp:
     tracing:
-      endpoint: ${OTLP_ENDPOINT:http://jaeger-collector.observability.svc.cluster.local:4318/v1/traces}
+      endpoint: ${OTLP_ENDPOINT:http://localhost:4318/v1/traces}
 
 mesh:
   environment: ${MESH_ENV:local}

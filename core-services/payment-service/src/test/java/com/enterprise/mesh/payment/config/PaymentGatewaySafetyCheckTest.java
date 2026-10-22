@@ -59,7 +59,7 @@ class PaymentGatewaySafetyCheckTest {
     void allowsRealGatewayInProduction() {
         MockEnvironment environment = httpGatewayEnv("prod");
         environment.setProperty("mesh.payment.provider.base-url", "https://payments.example");
-        environment.setProperty("mesh.payment.provider.api-key", "sk_live_real_key");
+        environment.setProperty("mesh.payment.provider.api-key", "sk_test_dummy_key");
 
         assertThatCode(() -> new PaymentGatewaySafetyCheck(environment).afterPropertiesSet())
                 .doesNotThrowAnyException();
@@ -82,7 +82,7 @@ class PaymentGatewaySafetyCheckTest {
     void modeIsCaseInsensitive() {
         MockEnvironment environment = httpGatewayEnv("prod");
         environment.setProperty("mesh.payment.provider.base-url", "https://payments.example");
-        environment.setProperty("mesh.payment.provider.api-key", "sk_live_real_key");
+        environment.setProperty("mesh.payment.provider.api-key", "sk_test_dummy_key");
 
         assertThatCode(() -> new PaymentGatewaySafetyCheck(environment).afterPropertiesSet())
                 .doesNotThrowAnyException();
@@ -92,7 +92,7 @@ class PaymentGatewaySafetyCheckTest {
     @DisplayName("the http gateway is rejected without a provider base url")
     void httpRequiresBaseUrl() {
         MockEnvironment environment = httpGatewayEnv("prod");
-        environment.setProperty("mesh.payment.provider.api-key", "sk_live_real_key");
+        environment.setProperty("mesh.payment.provider.api-key", "sk_test_dummy_key");
 
         assertThatThrownBy(() -> new PaymentGatewaySafetyCheck(environment).afterPropertiesSet())
                 .isInstanceOf(IllegalStateException.class)

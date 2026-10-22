@@ -84,9 +84,9 @@ To ensure ultimate data consistency across distinct database boundaries without 
 
 ### 2. Reliable Asynchronous Event Streaming (Transactional Outbox Pattern)
 To avoid data loss resulting from network hiccups or messaging broker downtime during database operations, the platform isolates DB commits from Kafka broadcasts.
-*   **Implementation Location:** See `OutboxEvent.java`, `OutboxEventRepository.java`, and `OutboxRelay.java` inside `order-service`.
-*   **How it works:** Whenever an order transaction occurs, an `OutboxEvent` record containing the payload message is generated and committed within the **exact same database transaction** as the order state modification.
-*   **Relay Mechanism:** A decoupled background polling worker (`OutboxRelay`) continually reads un-emitted records from the outbox table, writes them securely to Apache Kafka, and flags them as processed only after a valid cluster acknowledgment is returned.
+*   **Implementation Location:** See `OutboxEvent.java`, `OutboxEventRepository.java`, and `OutboxService.java` inside `order-service`.
+*   **How it works:** Whenever an order transaction occurs, an append-only `OutboxEvent` record containing the payload message is written within the **exact same database transaction** as the order state modification, so "order persisted" and "event recorded" commit or roll back together.
+*   **Delivery Mechanism:** Delivery is Change Data Capture (CDC). Debezium tails the PostgreSQL write-ahead log and its outbox event router publishes every inserted row to Apache Kafka. There is no polling relay and no `published_at` bookkeeping - the WAL, not a column, is the record of what was emitted, so nothing can fall behind a claim lock.
 
 ### 3. Concurrency Protection & Stock Optimization
 *   **Implementation Location:** See `InventoryReservation.java` and `ReservationExpirySweeper.java` inside `inventory-service`.
@@ -127,9 +127,8 @@ Ensure your local environment includes:
 *   Docker & Docker Compose
 
 ### Running the Full Mesh Locally
-1. Clone this repository to your workstation:
+1. Clone this repository to your workstation, then enter the project directory:
    ```bash
-   git clone https://github.com
    cd enterprise-ecommerce-mesh
    ```
 2. Build all services and compile shared libraries via Maven:
@@ -152,4 +151,4 @@ The BFF boots without any identity-provider configuration and logs a warning; on
 - [docs/AKS-DEPLOYMENT.md](docs/AKS-DEPLOYMENT.md) - cluster setup and deployment
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - service design and data flow
 - [docs/RUNBOOK.md](docs/RUNBOOK.md) - operational procedures and alerts
-- [SYSTEM_DESIGN_HLD.md](SYSTEM_DESIGN_HLD.md) - high-level design decisions
+- [docs/SYSTEM_DESIGN_HLD.md](docs/SYSTEM_DESIGN_HLD.md) - high-level design decisions

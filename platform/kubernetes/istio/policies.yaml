@@ -130,7 +130,7 @@ spec:
               - "cluster.local/ns/ecommerce/sa/ecommerce-workload"
               - "cluster.local/ns/ecommerce/sa/ecommerce-gateway"
 ---
-# Prometheus scrapes /actuator/prometheus and Jaeger receives OTLP from every
+# Prometheus scrapes /actuator/prometheus and the OTel Collector receives OTLP from every
 # pod. Matching on namespace rather than principal keeps this working when the
 # observability stack is deployed under a different service account.
 apiVersion: security.istio.io/v1
@@ -606,3 +606,25 @@ spec:
   accessLogging:
     - providers:
         - name: envoy
+  # Mesh tracing is COMMENTED OUT here on purpose, where the Helm chart renders
+  # it live. A `tracing` block may only name a provider, and the name must
+  # resolve in istiod's MeshConfig. An undefined provider does not degrade — it
+  # gets the whole Telemetry resource rejected, which would take the access
+  # logging above down with it. Kustomize cannot parameterise this the way
+  # `istio.tracingProvider` does in the chart.
+  #
+  # To enable it through this overlay:
+  #   1. helm upgrade istiod istio/istiod -n istio-system \
+  #        -f deploy/istiod/meshconfig-tracing.yaml
+  #   2. uncomment the block below
+  #   3. keep randomSamplingPercentage equal to the application's
+  #      management.tracing.sampling.probability, or the two halves of a trace
+  #      disagree about whether they exist
+  #
+  # tracing:
+  #   - providers:
+  #       - name: otel-collector
+  #     randomSamplingPercentage: 10.0
+  #
+  # Note: ztunnel never emits spans whatever this is set to. Only the waypoint
+  # does. See deploy/istiod/README.md.

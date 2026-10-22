@@ -1,0 +1,470 @@
+<mxfile host="app.diagrams.net" agent="hldgen">
+  <diagram id="full-call-graph" name="Full Call Graph - Sync + Async">
+    <mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2800" pageHeight="2200" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="cg_title" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=18;fontColor=#0F172A;fillColor=#FFFFFF;strokeColor=#E2E8F0;strokeWidth=1.5;align=left;verticalAlign=middle;arcSize=25;spacingLeft=14;" value="&lt;b&gt;Enterprise E-Commerce Mesh — Full Call Graph&lt;/b&gt; &lt;font color=#64748B size=2&gt;· sync HTTP + async events · rev 2026-10&lt;/font&gt;" vertex="1">
+          <mxGeometry height="48" width="2720" x="40" y="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_scope" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#475569;fillColor=#FFFFFF;strokeColor=#E2E8F0;strokeWidth=1.5;align=left;verticalAlign=middle;arcSize=20;spacingLeft=12;" value="&lt;b&gt;How to read:&lt;/b&gt; solid = synchronous HTTP · dashed teal = asynchronous event · dashed blue = identity / config · dashed gray = external / conditional · state stores are in node captions, not drawn as call edges. Service names may appear twice: API role and async producer / consumer role." vertex="1">
+          <mxGeometry height="28" width="2720" x="40" y="72" as="geometry" />
+        </mxCell>
+
+        <mxCell id="z_clients" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=11;fontColor=#0F172A;fillColor=#F8FAFC;strokeColor=#64748B;strokeWidth=2;align=left;verticalAlign=top;arcSize=2;spacingLeft=12;spacingTop=7;" value="&lt;b&gt;CLIENTS + IDENTITY — OUTSIDE AKS&lt;/b&gt;" vertex="1">
+          <mxGeometry height="170" width="2720" x="40" y="110" as="geometry" />
+        </mxCell>
+
+        <mxCell id="z_edge" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=11;fontColor=#0F172A;fillColor=#FFFBEB;strokeColor=#B45309;strokeWidth=2;align=left;verticalAlign=top;arcSize=2;spacingLeft=12;spacingTop=7;" value="&lt;b&gt;EDGE — AGC (L7) + SPRING EDGE&lt;/b&gt;" vertex="1">
+          <mxGeometry height="230" width="2720" x="40" y="300" as="geometry" />
+        </mxCell>
+
+        <mxCell id="z_sync" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=11;fontColor=#0F172A;fillColor=#FCFBFF;strokeColor=#6D28D9;strokeWidth=2;align=left;verticalAlign=top;arcSize=2;spacingLeft=12;spacingTop=7;" value="&lt;b&gt;SYNCHRONOUS SERVICE CALLS — HTTP/1.1 THROUGH THE MESH · ztunnel L4 · waypoint L7&lt;/b&gt;" vertex="1">
+          <mxGeometry height="760" width="2720" x="40" y="550" as="geometry" />
+        </mxCell>
+
+        <mxCell id="z_async" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=11;fontColor=#0F172A;fillColor=#F0FDFA;strokeColor=#0F766E;strokeWidth=2;align=left;verticalAlign=top;arcSize=2;spacingLeft=12;spacingTop=7;" value="&lt;b&gt;ASYNCHRONOUS FLOWS — AZURE SERVICE BUS (KAFKA ENDPOINT :9093) · at-least-once&lt;/b&gt;" vertex="1">
+          <mxGeometry height="560" width="2720" x="40" y="1330" as="geometry" />
+        </mxCell>
+
+        <mxCell id="z_legend" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=10;fontColor=#0F172A;fillColor=#FAFAFC;strokeColor=#E2E8F0;strokeWidth=1.5;align=left;verticalAlign=top;arcSize=2;spacingLeft=12;spacingTop=7;" value="&lt;b&gt;LEGEND&lt;/b&gt;" vertex="1">
+          <mxGeometry height="220" width="2720" x="40" y="1910" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_browser" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=10;fontColor=#0F172A;fillColor=#FFFFFF;strokeColor=#64748B;strokeWidth=1.5;align=center;verticalAlign=middle;" value="&lt;b&gt;Browser&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;SPA · no bearer token&lt;/font&gt;&lt;br&gt;HttpOnly session cookie" vertex="1">
+          <mxGeometry height="90" width="300" x="80" y="150" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_mobile" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=10;fontColor=#0F172A;fillColor=#FFFFFF;strokeColor=#64748B;strokeWidth=1.5;align=center;verticalAlign=middle;" value="&lt;b&gt;Mobile app&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;public client&lt;/font&gt;&lt;br&gt;authorization_code + PKCE" vertex="1">
+          <mxGeometry height="90" width="300" x="420" y="150" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_partner" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=10;fontColor=#0F172A;fillColor=#FFFFFF;strokeColor=#64748B;strokeWidth=1.5;align=center;verticalAlign=middle;" value="&lt;b&gt;Partner integration&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;confidential client&lt;/font&gt;&lt;br&gt;client_credentials access token" vertex="1">
+          <mxGeometry height="90" width="300" x="760" y="150" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_entra" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=10;fontColor=#0F172A;fillColor=#E0F2FE;strokeColor=#0369A1;strokeWidth=1.5;align=center;verticalAlign=middle;" value="&lt;b&gt;Microsoft Entra ID&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;OAuth2 / OIDC&lt;/font&gt;&lt;br&gt;authorization_code · client_credentials" vertex="1">
+          <mxGeometry height="90" width="380" x="1120" y="150" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_identity_note" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#FFFFFF;strokeColor=#CBD5E1;strokeWidth=1.5;align=left;verticalAlign=middle;arcSize=10;spacingLeft=12;dashed=1;dashPattern=6 4;" value="&lt;b&gt;Token acquisition&lt;/b&gt;&lt;br&gt;Browser: session cookie → BFF → Entra (code exchange + refresh)&lt;br&gt;Mobile: authorization_code + PKCE → Entra; bearer token to AGC&lt;br&gt;Partner: client_credentials → Entra; access token only; bearer token to AGC&lt;br&gt;Mobile / Partner bypass the BFF. Entra is not called through AGC." vertex="1">
+          <mxGeometry height="90" width="1180" x="1540" y="150" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_agc" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#FFFBEB;strokeColor=#B45309;strokeWidth=2;align=center;verticalAlign=middle;" value="&lt;b&gt;Azure Application Gateway for Containers (AGC)&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;L7 ingress · TLS 1.3 · WAF · IP rate limit&lt;/font&gt;&lt;br&gt;/bff/** + /login → bff-service:8091&lt;br&gt;/** → api-gateway:8080&lt;br&gt;&lt;font color=#64748B&gt;outside AKS · no SPIFFE identity · cannot speak HBONE&lt;/font&gt;" vertex="1">
+          <mxGeometry height="130" width="500" x="80" y="350" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_bff" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;fillColor=#FEF3C7;strokeColor=#B45309;strokeWidth=2;align=center;verticalAlign=middle;" value="&lt;b&gt;bff-service :8091&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;session cookie → bearer · CSRF · Redis session store&lt;/font&gt;&lt;br&gt;&lt;b&gt;Aggregation surfaces&lt;/b&gt;&lt;br&gt;/bff/api/public/storefront → /api/products&lt;br&gt;/bff/api/dashboard → /api/customers/me · /api/cart · /api/orders · /api/ai/recommendations&lt;br&gt;/bff/api/session → token refresh / introspection" vertex="1">
+          <mxGeometry height="130" width="400" x="620" y="350" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_gw" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;fillColor=#FEF3C7;strokeColor=#B45309;strokeWidth=2;align=center;verticalAlign=middle;" value="&lt;b&gt;api-gateway :8080&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;Spring Cloud Gateway · JWT · tenant isolation · per-tenant rate limit · circuit breakers&lt;/font&gt;&lt;br&gt;&lt;b&gt;Routes&lt;/b&gt; · /api/products,/api/categories → product-catalog&lt;br&gt;/api/reviews → review-rating · /api/cart,/api/carts → shopping-cart&lt;br&gt;/api/customers → customer · /api/orders → order&lt;br&gt;/api/payments → payment · /api/inventory → inventory&lt;br&gt;/api/ai → ai-orchestrator&lt;br&gt;/internal/shipping → shipping · /internal/notifications → notification (actuator)&lt;br&gt;/internal/docs → swagger-ui (tooling)" vertex="1">
+          <mxGeometry height="180" width="680" x="1060" y="340" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_edge_note" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;fillColor=#FFFFFF;strokeColor=#CBD5E1;strokeWidth=1.5;align=left;verticalAlign=middle;arcSize=10;spacingLeft=12;dashed=1;dashPattern=6 4;" value="&lt;b&gt;Edge notes&lt;/b&gt;&lt;br&gt;AGC is outside AKS: TLS 1.3 · WAF · IP rate limit · no SPIFFE identity · cannot speak HBONE. It routes /bff/** and /login to BFF, everything else to the gateway.&lt;br&gt;Gateway is the only business HTTP entry into the mesh: JWT validation · tenant isolation · per-tenant rate limit · circuit breaker. It uses CoreDNS Service names; no service registry.&lt;br&gt;Secrets: Key Vault CSI." vertex="1">
+          <mxGeometry height="180" width="940" x="1780" y="340" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_catalog" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#F8F7FF;strokeColor=#6D28D9;strokeWidth=1.5;align=center;verticalAlign=middle;" value="&lt;b&gt;product-catalog-service :8085&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;Cosmos DB (Mongo, catalog_db) · Redis cache&lt;/font&gt;&lt;br&gt;/api/products · /api/categories · /api/products/sku/{sku}&lt;br&gt;publishes product.events (AFTER_COMMIT)" vertex="1">
+          <mxGeometry height="100" width="360" x="100" y="620" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_review" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#F8F7FF;strokeColor=#6D28D9;strokeWidth=1.5;align=center;verticalAlign=middle;" value="&lt;b&gt;review-rating-service :8088&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;Cosmos DB (Mongo, reviews_db)&lt;/font&gt;&lt;br&gt;/api/reviews/**&lt;br&gt;no Kafka · no outbound calls" vertex="1">
+          <mxGeometry height="100" width="360" x="100" y="760" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_cart" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#F8F7FF;strokeColor=#6D28D9;strokeWidth=1.5;align=center;verticalAlign=middle;" value="&lt;b&gt;shopping-cart-service :8086&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;Redis (cart:*)&lt;/font&gt;&lt;br&gt;/api/cart/** · /api/carts/**&lt;br&gt;no outbound calls" vertex="1">
+          <mxGeometry height="100" width="360" x="100" y="900" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_order" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#F8F7FF;strokeColor=#6D28D9;strokeWidth=1.5;align=center;verticalAlign=middle;" value="&lt;b&gt;order-service :8082&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;PostgreSQL (orders_db) · outbox_events · @Transactional saga&lt;/font&gt;&lt;br&gt;/api/orders/** · order.paid / order.failed&lt;br&gt;→ inventory (sync) · → payment (sync)" vertex="1">
+          <mxGeometry height="100" width="360" x="720" y="620" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_inventory" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#F8F7FF;strokeColor=#6D28D9;strokeWidth=1.5;align=center;verticalAlign=middle;" value="&lt;b&gt;inventory-service :8083&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;PostgreSQL (inventory_db) · optimistic locking · reservation sweeper&lt;/font&gt;&lt;br&gt;/api/inventory/**&lt;br&gt;called by order-service" vertex="1">
+          <mxGeometry height="100" width="360" x="720" y="760" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_payment" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#F8F7FF;strokeColor=#6D28D9;strokeWidth=1.5;align=center;verticalAlign=middle;" value="&lt;b&gt;payment-service :8084&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;PostgreSQL (payments_db) · provider tokenisation&lt;/font&gt;&lt;br&gt;/api/payments/** · called by order-service&lt;br&gt;→ provider (authorise · capture · refund)" vertex="1">
+          <mxGeometry height="100" width="360" x="720" y="900" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_customer" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#F8F7FF;strokeColor=#6D28D9;strokeWidth=1.5;align=center;verticalAlign=middle;" value="&lt;b&gt;customer-service :8087&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;PostgreSQL (customers_db)&lt;/font&gt;&lt;br&gt;/api/customers/**&lt;br&gt;no outbound calls" vertex="1">
+          <mxGeometry height="100" width="360" x="1340" y="620" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_ai" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#F8F7FF;strokeColor=#6D28D9;strokeWidth=1.5;align=center;verticalAlign=middle;" value="&lt;b&gt;ai-orchestrator-service :8090&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;Cosmos DB (Mongo, ai_db) · Redis caches&lt;/font&gt;&lt;br&gt;/api/ai/** · consumes order.events + product.events&lt;br&gt;→ product-catalog (sync category / candidate lookup)" vertex="1">
+          <mxGeometry height="100" width="360" x="1340" y="760" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_shipping" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#F0F9FF;strokeColor=#0369A1;strokeWidth=2;align=center;verticalAlign=middle;" value="&lt;b&gt;shipping-delivery-service :8089&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;PostgreSQL (shipping_db) · Kafka consumer · /internal/shipping&lt;/font&gt;&lt;br&gt;order.paid → create shipment&lt;br&gt;→ carrier adapter (purchaseLabel / cancelLabel)" vertex="1">
+          <mxGeometry height="100" width="360" x="1340" y="900" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_notification" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#F0F9FF;strokeColor=#0369A1;strokeWidth=2;align=center;verticalAlign=middle;" value="&lt;b&gt;notification-service (L4 only)&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;headless · :8081 actuator only · Redis dedupe&lt;/font&gt;&lt;br&gt;consumes order.events · dispatcher logs · no vendor call&lt;br&gt;no business HTTP surface" vertex="1">
+          <mxGeometry height="100" width="360" x="1960" y="620" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_sync_note" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;fillColor=#FFFFFF;strokeColor=#CBD5E1;strokeWidth=1.5;align=left;verticalAlign=middle;arcSize=8;spacingLeft=12;dashed=1;dashPattern=6 4;" value="&lt;b&gt;Mesh data plane:&lt;/b&gt; every in-cluster edge traverses ztunnel L4; the 9 business services are waypoint-enrolled for L7 (per-request LB, retries, outlier ejection, path authz). api-gateway / bff-service / notification-service have no waypoint. istiod supplies xDS + workload certs but is not on the per-request path.&lt;br&gt;&lt;b&gt;Only 3 synchronous service-to-service calls:&lt;/b&gt; order→inventory, order→payment, ai→product-catalog. They use RestClient + X-Tenant-ID, no bearer token; mesh mTLS secures the hop." vertex="1">
+          <mxGeometry height="180" width="540" x="100" y="1040" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_ext_lane" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#475569;fillColor=#F8FAFC;strokeColor=#CBD5E1;strokeWidth=1.5;align=left;verticalAlign=top;arcSize=6;spacingLeft=12;spacingTop=6;dashed=1;dashPattern=6 4;" value="&lt;b&gt;EXTERNAL EGRESS — provider adapters&lt;/b&gt;" vertex="1">
+          <mxGeometry height="180" width="1040" x="680" y="1040" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_payment_provider" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#FFFFFF;strokeColor=#475569;strokeWidth=1.5;align=center;verticalAlign=middle;dashed=1;dashPattern=6 4;" value="&lt;b&gt;Payment provider API&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;HTTP adapter when PAYMENT_GATEWAY=http&lt;/font&gt;&lt;br&gt;authorise · capture · refund&lt;br&gt;&lt;font color=#B45309&gt;void is local status only; no provider call&lt;/font&gt;" vertex="1">
+          <mxGeometry height="90" width="360" x="720" y="1080" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_carrier" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#FFFFFF;strokeColor=#475569;strokeWidth=1.5;align=center;verticalAlign=middle;dashed=1;dashPattern=6 4;" value="&lt;b&gt;Carrier API&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;CarrierGateway seam · StubCarrierGateway in repo&lt;/font&gt;&lt;br&gt;purchaseLabel · cancelLabel" vertex="1">
+          <mxGeometry height="90" width="360" x="1340" y="1080" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_ext_note" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=8;fontColor=#475569;fillColor=#FFFFFF;strokeColor=#CBD5E1;strokeWidth=1.5;align=left;verticalAlign=middle;arcSize=8;spacingLeft=12;dashed=1;dashPattern=6 4;" value="&lt;b&gt;External adapters&lt;/b&gt;&lt;br&gt;Payment is a real HTTP call only when the HTTP gateway is enabled; the local stub takes no money.&lt;br&gt;Carrier is a seam: the only implementation in the repo is StubCarrierGateway, which never contacts a real carrier.&lt;br&gt;notification-service has no external vendor: NotificationDispatcher logs instead of sending." vertex="1">
+          <mxGeometry height="180" width="720" x="1960" y="760" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_async_order" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#F0FDFA;strokeColor=#0F766E;strokeWidth=1.5;align=center;verticalAlign=middle;" value="&lt;b&gt;order-service — producer role&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;same workload as above&lt;/font&gt;&lt;br&gt;INSERT outbox_events in the order transaction&lt;br&gt;event types: order.paid · order.failed" vertex="1">
+          <mxGeometry height="100" width="380" x="100" y="1410" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_async_catalog" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#F0FDFA;strokeColor=#0F766E;strokeWidth=1.5;align=center;verticalAlign=middle;" value="&lt;b&gt;product-catalog-service — producer role&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;same workload as above&lt;/font&gt;&lt;br&gt;publish product.events AFTER_COMMIT · not an outbox&lt;br&gt;types: product.created · updated · deactivated" vertex="1">
+          <mxGeometry height="100" width="380" x="100" y="1550" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_debezium" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#FFFFFF;strokeColor=#0F766E;strokeWidth=1.5;align=center;verticalAlign=middle;" value="&lt;b&gt;Debezium outbox connector&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;PostgreSQL WAL → EventRouter&lt;/font&gt;&lt;br&gt;table: outbox_events · route.by.field=topic&lt;br&gt;&lt;font color=#B45309&gt;Kafka Connect cluster is not in this repo&lt;/font&gt;" vertex="1">
+          <mxGeometry height="100" width="340" x="540" y="1410" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_order_events" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#FFFFFF;strokeColor=#0F766E;strokeWidth=2;align=center;verticalAlign=middle;" value="&lt;b&gt;order.events&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;Kafka topic · key = aggregateId&lt;/font&gt;&lt;br&gt;CloudEvents ce_* headers&lt;br&gt;order.paid · order.failed" vertex="1">
+          <mxGeometry height="100" width="360" x="940" y="1410" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_product_events" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#FFFFFF;strokeColor=#0F766E;strokeWidth=2;align=center;verticalAlign=middle;" value="&lt;b&gt;product.events&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;Kafka topic · key = tenant:sku&lt;/font&gt;&lt;br&gt;CloudEvents ce_* headers&lt;br&gt;product.created · updated · deactivated" vertex="1">
+          <mxGeometry height="100" width="360" x="940" y="1550" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_notif_consumer" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#F0FDFA;strokeColor=#0F766E;strokeWidth=1.5;align=center;verticalAlign=middle;" value="&lt;b&gt;notification-service — consumer&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;group notification-service · Redis dedupe 8d&lt;/font&gt;&lt;br&gt;all order events · dispatcher logs (no vendor)" vertex="1">
+          <mxGeometry height="90" width="400" x="1380" y="1400" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_ship_consumer" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#F0FDFA;strokeColor=#0F766E;strokeWidth=1.5;align=center;verticalAlign=middle;" value="&lt;b&gt;shipping-delivery-service — consumer&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;group shipping-service · PostgreSQL&lt;/font&gt;&lt;br&gt;order.paid only · idempotent on (order_id, tenant_id)" vertex="1">
+          <mxGeometry height="90" width="400" x="1380" y="1505" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_ai_order_consumer" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#F0FDFA;strokeColor=#0F766E;strokeWidth=1.5;align=center;verticalAlign=middle;" value="&lt;b&gt;ai-orchestrator-service — order consumer&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;group ai-orchestrator · Redis dedupe 8d&lt;/font&gt;&lt;br&gt;order.paid only · purchase affinity" vertex="1">
+          <mxGeometry height="90" width="400" x="1380" y="1610" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_ai_product_consumer" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#F0FDFA;strokeColor=#0F766E;strokeWidth=1.5;align=center;verticalAlign=middle;" value="&lt;b&gt;ai-orchestrator-service — product consumer&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;group semantic-indexer&lt;/font&gt;&lt;br&gt;product.* · vector index · no Redis dedupe" vertex="1">
+          <mxGeometry height="90" width="400" x="1380" y="1715" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_order_dlq" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#FFFFFF;strokeColor=#94A3B8;strokeWidth=1.2;align=center;verticalAlign=middle;dashed=1;dashPattern=4 3;" value="&lt;b&gt;order.events.dlq&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;dead-letter topic · same partition&lt;/font&gt;" vertex="1">
+          <mxGeometry height="80" width="300" x="1840" y="1410" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_product_dlq" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F172A;fillColor=#FFFFFF;strokeColor=#94A3B8;strokeWidth=1.2;align=center;verticalAlign=middle;dashed=1;dashPattern=4 3;" value="&lt;b&gt;product.events.dlq&lt;/b&gt;&lt;br&gt;&lt;font color=#64748B&gt;dead-letter topic · same partition&lt;/font&gt;" vertex="1">
+          <mxGeometry height="80" width="300" x="1840" y="1550" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_async_note" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=8;fontColor=#475569;fillColor=#FFFFFF;strokeColor=#CBD5E1;strokeWidth=1.5;align=left;verticalAlign=middle;arcSize=8;spacingLeft=12;dashed=1;dashPattern=6 4;" value="&lt;b&gt;Delivery semantics&lt;/b&gt;&lt;br&gt;At-least-once · consumers idempotent · per-topic .dlq on the same partition&lt;br&gt;3 retries @2s then DLQ · non-retryable: deserialization / conversion / IllegalArgumentException&lt;br&gt;Trace context does not cross Kafka: correlate with ce_correlationid, not traceparent." vertex="1">
+          <mxGeometry height="120" width="760" x="1840" y="1660" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_leg_sync" parent="1" style="text;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#334155;align=left;verticalAlign=middle;" value="— solid: synchronous HTTP" vertex="1">
+          <mxGeometry height="20" width="300" x="60" y="1948" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_leg_async" parent="1" style="text;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0F766E;align=left;verticalAlign=middle;" value="--- dashed teal: asynchronous event" vertex="1">
+          <mxGeometry height="20" width="300" x="60" y="1973" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_leg_identity" parent="1" style="text;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#0369A1;align=left;verticalAlign=middle;" value="--- dashed blue: identity / config" vertex="1">
+          <mxGeometry height="20" width="300" x="60" y="1998" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_leg_external" parent="1" style="text;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#475569;align=left;verticalAlign=middle;" value="--- dashed gray: external / conditional" vertex="1">
+          <mxGeometry height="20" width="300" x="60" y="2023" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_leg_svc" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;fillColor=#F8F7FF;strokeColor=#6D28D9;strokeWidth=1.5;align=center;verticalAlign=middle;" value="service (L7)" vertex="1">
+          <mxGeometry height="22" width="120" x="400" y="1946" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_leg_l4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;fillColor=#F0F9FF;strokeColor=#0369A1;strokeWidth=1.5;align=center;verticalAlign=middle;" value="L4 only" vertex="1">
+          <mxGeometry height="22" width="120" x="540" y="1946" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_leg_ext" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;fillColor=#FFFFFF;strokeColor=#475569;strokeWidth=1.5;align=center;verticalAlign=middle;dashed=1;dashPattern=6 4;" value="external" vertex="1">
+          <mxGeometry height="22" width="120" x="680" y="1946" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_leg_note" parent="1" style="text;html=1;fontFamily=Segoe UI;fontSize=9;fontColor=#475569;align=left;verticalAlign=middle;" value="&lt;b&gt;Duplicate service names&lt;/b&gt; are role boxes: API role vs async producer / consumer role.&lt;br&gt;State stores are in node captions; they are not drawn as call edges." vertex="1">
+          <mxGeometry height="50" width="900" x="400" y="1985" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cg_leg_sources" parent="1" style="text;html=1;fontFamily=Segoe UI;fontSize=8;fontColor=#64748B;align=left;verticalAlign=middle;" value="&lt;b&gt;Sources:&lt;/b&gt; api-gateway application.yml · BFF controllers · CheckoutSagaOrchestrator · CatalogueClient · Kafka listeners · Debezium connector manifest.&lt;br&gt;Payment provider is conditional on PAYMENT_GATEWAY=http; carrier adapter is a stub in this repo." vertex="1">
+          <mxGeometry height="60" width="1400" x="1320" y="1940" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_browser_agc" edge="1" parent="1" source="cg_browser" target="cg_agc" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#B91C1C;strokeWidth=2.5;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.3;entryY=0;" value="HTTPS · session cookie">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_mobile_agc" edge="1" parent="1" source="cg_mobile" target="cg_agc" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#B91C1C;strokeWidth=2.5;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.7;entryY=0;" value="HTTPS · bearer token">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_partner_agc" edge="1" parent="1" source="cg_partner" target="cg_agc" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#B91C1C;strokeWidth=2.5;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.9;entryY=0;" value="HTTPS · bearer token">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_mobile_entra" edge="1" parent="1" source="cg_mobile" target="cg_entra" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#0369A1;strokeWidth=1.5;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;dashed=1;dashPattern=6 4;exitX=0.5;exitY=0;entryX=0.3;entryY=0;" value="authorization_code + PKCE">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="570" y="130" />
+              <mxPoint x="1234" y="130" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_partner_entra" edge="1" parent="1" source="cg_partner" target="cg_entra" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#0369A1;strokeWidth=1.5;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;dashed=1;dashPattern=6 4;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" value="client_credentials">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_bff_entra" edge="1" parent="1" source="cg_bff" target="cg_entra" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#0369A1;strokeWidth=1.5;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;dashed=1;dashPattern=6 4;exitX=0.5;exitY=0;entryX=0.4;entryY=1;" value="code exchange + refresh">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="820" y="300" />
+              <mxPoint x="1272" y="300" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_gw_entra" edge="1" parent="1" source="cg_gw" target="cg_entra" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#0369A1;strokeWidth=1.5;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;dashed=1;dashPattern=6 4;exitX=0.5;exitY=0;entryX=0.8;entryY=1;" value="JWKS / OIDC discovery">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1400" y="280" />
+              <mxPoint x="1424" y="280" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_agc_bff" edge="1" parent="1" source="cg_agc" target="cg_bff" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#B91C1C;strokeWidth=2.5;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;exitX=1;exitY=0.4;entryX=0;entryY=0.4;" value="/bff/** + /login">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_agc_gw" edge="1" parent="1" source="cg_agc" target="cg_gw" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#B91C1C;strokeWidth=2.5;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;exitX=0.8;exitY=1;entryX=0.2;entryY=1;" value="/**">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="480" y="510" />
+              <mxPoint x="1196" y="510" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_bff_gw" edge="1" parent="1" source="cg_bff" target="cg_gw" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#334155;strokeWidth=1.6;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" value="bearer token + X-Tenant-ID">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_gw_catalog" edge="1" parent="1" source="cg_gw" target="cg_catalog" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#334155;strokeWidth=1.6;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;exitX=0.1;exitY=1;entryX=0.5;entryY=0;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1128" y="575" />
+              <mxPoint x="280" y="575" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_gw_review" edge="1" parent="1" source="cg_gw" target="cg_review" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#334155;strokeWidth=1.6;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;exitX=0.15;exitY=1;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1162" y="580" />
+              <mxPoint x="60" y="580" />
+              <mxPoint x="60" y="810" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_gw_cart" edge="1" parent="1" source="cg_gw" target="cg_cart" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#334155;strokeWidth=1.6;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;exitX=0.2;exitY=1;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1196" y="585" />
+              <mxPoint x="80" y="585" />
+              <mxPoint x="80" y="950" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_gw_order" edge="1" parent="1" source="cg_gw" target="cg_order" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#334155;strokeWidth=1.6;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;exitX=0.3;exitY=1;entryX=0.5;entryY=0;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1264" y="590" />
+              <mxPoint x="900" y="590" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_gw_inventory" edge="1" parent="1" source="cg_gw" target="cg_inventory" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#334155;strokeWidth=1.6;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;exitX=0.35;exitY=1;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1298" y="595" />
+              <mxPoint x="680" y="595" />
+              <mxPoint x="680" y="810" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_gw_payment" edge="1" parent="1" source="cg_gw" target="cg_payment" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#334155;strokeWidth=1.6;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;exitX=0.4;exitY=1;entryX=1;entryY=0.6;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1332" y="600" />
+              <mxPoint x="1150" y="600" />
+              <mxPoint x="1150" y="960" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_gw_customer" edge="1" parent="1" source="cg_gw" target="cg_customer" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#334155;strokeWidth=1.6;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;exitX=0.6;exitY=1;entryX=0.5;entryY=0;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1468" y="605" />
+              <mxPoint x="1520" y="605" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_gw_ai" edge="1" parent="1" source="cg_gw" target="cg_ai" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#334155;strokeWidth=1.6;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;exitX=0.65;exitY=1;entryX=0;entryY=0.3;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1502" y="610" />
+              <mxPoint x="1320" y="610" />
+              <mxPoint x="1320" y="790" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_gw_shipping" edge="1" parent="1" source="cg_gw" target="cg_shipping" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#334155;strokeWidth=1.6;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;exitX=0.7;exitY=1;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1536" y="615" />
+              <mxPoint x="1280" y="615" />
+              <mxPoint x="1280" y="950" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_gw_notification" edge="1" parent="1" source="cg_gw" target="cg_notification" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#334155;strokeWidth=1.6;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;exitX=0.95;exitY=1;entryX=0.5;entryY=0;" value="actuator only">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1706" y="618" />
+              <mxPoint x="2140" y="618" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_order_inventory" edge="1" parent="1" source="cg_order" target="cg_inventory" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#334155;strokeWidth=1.6;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" value="reserve · confirm · release · unconfirm">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_order_payment" edge="1" parent="1" source="cg_order" target="cg_payment" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#334155;strokeWidth=1.6;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=1;entryY=0.4;" value="authorise · capture · void">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1120" y="670" />
+              <mxPoint x="1120" y="940" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_ai_catalog" edge="1" parent="1" source="cg_ai" target="cg_catalog" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#334155;strokeWidth=1.6;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;exitX=0;exitY=0.7;entryX=1;entryY=0.5;" value="GET /api/products · /api/products/sku/{sku}">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1300" y="830" />
+              <mxPoint x="1300" y="1010" />
+              <mxPoint x="460" y="1010" />
+              <mxPoint x="460" y="670" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_payment_provider" edge="1" parent="1" source="cg_payment" target="cg_payment_provider" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=1.5;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;dashed=1;dashPattern=6 4;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" value="authorise · capture · refund">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_shipping_carrier" edge="1" parent="1" source="cg_shipping" target="cg_carrier" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=1.5;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;dashed=1;dashPattern=6 4;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" value="purchaseLabel · cancelLabel">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_order_outbox" edge="1" parent="1" source="cg_async_order" target="cg_debezium" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#0F766E;strokeWidth=2;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;dashed=1;dashPattern=8 4;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" value="INSERT outbox_events (same tx)">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_debezium_orders" edge="1" parent="1" source="cg_debezium" target="cg_order_events" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#0F766E;strokeWidth=2;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;dashed=1;dashPattern=8 4;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" value="CDC EventRouter">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_catalog_products" edge="1" parent="1" source="cg_async_catalog" target="cg_product_events" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#0F766E;strokeWidth=2;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;dashed=1;dashPattern=8 4;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" value="publish AFTER_COMMIT">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_orders_notif" edge="1" parent="1" source="cg_order_events" target="cg_notif_consumer" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#0F766E;strokeWidth=2;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;dashed=1;dashPattern=8 4;exitX=1;exitY=0.3;entryX=0;entryY=0.5;" value="all order events">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_orders_ship" edge="1" parent="1" source="cg_order_events" target="cg_ship_consumer" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#0F766E;strokeWidth=2;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;dashed=1;dashPattern=8 4;exitX=1;exitY=0.7;entryX=0;entryY=0.5;" value="order.paid">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1310" y="1480" />
+              <mxPoint x="1310" y="1550" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_orders_ai" edge="1" parent="1" source="cg_order_events" target="cg_ai_order_consumer" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#0F766E;strokeWidth=2;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;dashed=1;dashPattern=8 4;exitX=1;exitY=0.8;entryX=0;entryY=0.5;" value="order.paid">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1320" y="1490" />
+              <mxPoint x="1320" y="1655" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_products_ai" edge="1" parent="1" source="cg_product_events" target="cg_ai_product_consumer" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#0F766E;strokeWidth=2;fontFamily=Segoe UI;fontSize=8;fontColor=#0F172A;labelBackgroundColor=#ffffff;dashed=1;dashPattern=8 4;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" value="product.*">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1340" y="1600" />
+              <mxPoint x="1340" y="1760" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_orders_dlq" edge="1" parent="1" source="cg_order_events" target="cg_order_dlq" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#94A3B8;strokeWidth=1.2;fontFamily=Segoe UI;fontSize=8;fontColor=#475569;labelBackgroundColor=#ffffff;dashed=1;dashPattern=4 3;exitX=0.5;exitY=0;entryX=0.5;entryY=0;" value="3 retries @2s">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1120" y="1380" />
+              <mxPoint x="1990" y="1380" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_products_dlq" edge="1" parent="1" source="cg_product_events" target="cg_product_dlq" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#94A3B8;strokeWidth=1.2;fontFamily=Segoe UI;fontSize=8;fontColor=#475569;labelBackgroundColor=#ffffff;dashed=1;dashPattern=4 3;exitX=1;exitY=0.5;entryX=1;entryY=0.5;" value="3 retries @2s">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1310" y="1600" />
+              <mxPoint x="1310" y="1370" />
+              <mxPoint x="2160" y="1370" />
+              <mxPoint x="2160" y="1590" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,0 +1,43 @@
+# Azure Monitor managed service for Prometheus: in-cluster configuration.
+#
+# These objects are meaningless without the AKS metrics add-on. AMP does not run
+# a Prometheus in this cluster that reads a config file; it runs an Azure Monitor
+# agent (ama-metrics) out of kube-system that consumes prometheus-operator CRDs
+# from the application namespaces. Applying these before the add-on fails on a
+# missing CRD, which is the correct failure - better than applying cleanly and
+# silently collecting nothing.
+#
+# Enable the add-on first:
+#   az aks update -g <rg> -n <aks> \
+#     --enable-azure-monitor-metrics \
+#     --azure-monitor-workspace-resource-id <amw-resource-id>
+#
+# Then apply:
+#   kubectl apply -f platform/observability/amp/
+#
+# The Azure-side resources (workspace, Managed Grafana, Application Insights,
+# action group) are NOT here. They are Azure resources the chart cannot create -
+# see deploy/azure/README.md.
+#
+# Alert and recording rules are also NOT here. AMP does not evaluate
+# PrometheusRule CRDs; it evaluates Microsoft.AlertsManagement/prometheusRuleGroups.
+# Deploy those with deploy/bicep/alerting.bicep. rules.yaml is kept as a readable
+# reference and is deliberately excluded from this kustomization.
+#
+# Local development is unaffected: docker-compose.yml still runs a
+# self-hosted Prometheus, Grafana and Jaeger against
+# platform/observability/prometheus/prometheus.yml and the Grafana provisioning
+# directory. Those are development conveniences and are not a production target.
+apiVersion: kustomize.config.k8s.io/v1
+kind: Kustomization
+
+namespace: ecommerce
+
+resources:
+  - podmonitors.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+      app.kubernetes.io/managed-by: kustomize
+    includeSelectors: false

@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  labels:
+    app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+    # Ambient mesh coverage is opt-in per namespace. The collector terminates
+    # OTLP from application pods and waypoints; it is not a business workload
+    # and adding it to the mesh would only add a hop to every span export.
+    istio.io/dataplane-mode: none

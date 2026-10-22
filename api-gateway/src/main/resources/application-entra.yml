@@ -36,3 +36,14 @@ spring:
           # substitute a key set. The gateway keeps the cached keys and refreshes
           # them on rotation either way, so this costs nothing in key freshness.
           jwk-set-uri: https://login.microsoftonline.com/${ENTRA_TENANT_ID}/discovery/v2.0/keys
+          # The third check, and the one that is easiest to omit. A token is only
+          # accepted if it was minted for this API. Issuer + signature alone also
+          # accept a token issued to any other application in the same directory,
+          # because Entra shares one key set and `iss` names the directory rather
+          # than the intended audience.
+          #
+          # Comma-separated. JwtValidationSafetyCheck refuses to start with the
+          # `entra` profile when this is unset, so the check cannot be dropped
+          # silently. The value is the API's Application ID URI (api://<client-id>)
+          # or its client-id GUID, and is supplied per environment.
+          audiences: ${ENTRA_AUDIENCE:}

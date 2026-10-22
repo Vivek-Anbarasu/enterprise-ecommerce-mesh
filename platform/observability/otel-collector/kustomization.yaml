@@ -1,0 +1,26 @@
+# OpenTelemetry Collector: the credential bridge between in-cluster OTLP and
+# Azure Monitor / Application Insights.
+#
+# Applications export OTLP/HTTP to :4318; the Istio waypoint exports OTLP/gRPC
+# to :4317. Neither can authenticate to Azure Monitor's OTLP ingest path on its
+# own: it requires the component's connection string (or an Entra token), and
+# Istio's extension provider has no header or credential mechanism at all. The
+# collector is the one place that holds the credential, which is also why it is
+# the only workload here that needs a secret.
+#
+# Apply after the Application Insights component exists and its connection
+# string has been put in the Secret this Deployment references.
+apiVersion: kustomize.config.k8s.io/v1
+kind: Kustomization
+
+namespace: observability
+
+resources:
+  - namespace.yaml
+  - otel-collector.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+      app.kubernetes.io/managed-by: kustomize
+    includeSelectors: false

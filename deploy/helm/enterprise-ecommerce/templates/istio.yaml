@@ -207,7 +207,7 @@ spec:
               - {{ $workloadPrincipal }}
               - {{ $gatewayPrincipal }}
 ---
-# Prometheus scrapes /actuator/prometheus and Jaeger receives OTLP from every
+# Prometheus scrapes /actuator/prometheus and the OTel Collector receives OTLP from every
 # pod. Matching on namespace rather than principal keeps this working when the
 # observability stack is deployed with a different service account.
 apiVersion: security.istio.io/v1
@@ -488,7 +488,8 @@ spec:
 {{- if $root.Values.istio.tracingProvider }}
   tracing:
     # The provider must exist in the istiod MeshConfig `extensionProviders`
-    # block; see docs/AKS-DEPLOYMENT.md for the Jaeger definition. Referencing
+    # block; see deploy/istiod/meshconfig-tracing.yaml for the otel-collector
+# definition. Referencing
     # a provider that is not defined leaves the resource rejected, so this is
     # driven by a value rather than hard-coded.
     - providers:

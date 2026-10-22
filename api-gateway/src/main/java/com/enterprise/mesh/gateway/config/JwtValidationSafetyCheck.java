@@ -49,6 +49,7 @@ public class JwtValidationSafetyCheck implements InitializingBean {
     public void afterPropertiesSet() {
         if (isEntraProfileActive()) {
             requireTenantId();
+            requireAudience();
         }
 
         if (jwtDecoderProvider.getIfAvailable() != null) {
@@ -111,6 +112,26 @@ public class JwtValidationSafetyCheck implements InitializingBean {
     private boolean isEntraProfileActive() {
         return Arrays.stream(environment.getActiveProfiles())
                 .anyMatch(profile -> "entra".equalsIgnoreCase(profile));
+    }
+
+    /**
+     * Refuses an {@code entra} startup with no audience configured.
+     *
+     * <p>Signature and issuer are not enough. Entra signs every tenant's tokens
+     * with a shared key set, and issuer identifies the directory rather than the
+     * intended recipient - so without an {@code aud} check the gateway happily
+     * accepts a token minted for an unrelated application in the same directory.
+     */
+    private void requireAudience() {
+        String audience = environment.getProperty("ENTRA_AUDIENCE");
+        if (audience == null || audience.isBlank()) {
+            throw new IllegalStateException(
+                    "The 'entra' profile is active but ENTRA_AUDIENCE is unset. The gateway would "
+                            + "validate signature and issuer but accept a token minted for any other "
+                            + "application in this directory. Set the API's Application ID URI "
+                            + "(or its client-id GUID) as ENTRA_AUDIENCE, e.g. with "
+                            + "--set global.entraAudience=<api-application-id>.");
+        }
     }
 
     /**

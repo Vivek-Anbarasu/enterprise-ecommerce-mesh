@@ -8,7 +8,9 @@ import io.micrometer.core.instrument.config.MeterFilter;
 import io.micrometer.core.instrument.config.MeterFilterReply;
 import io.micrometer.prometheusmetrics.PrometheusConfig;
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
+import io.micrometer.tracing.Tracer;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -33,6 +35,17 @@ public class MeshObservabilityAutoConfiguration {
     @ConditionalOnMissingBean
     public BusinessMetrics businessMetrics(MeterRegistry registry) {
         return new BusinessMetrics(registry);
+    }
+
+    /**
+     * Trace-id lookup for error responses. Registered here so every service gets
+     * the same bean, and so a service with tracing disabled still gets one that
+     * correctly reports "no trace" instead of a placeholder.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public TraceIds traceIds(ObjectProvider<Tracer> tracerProvider) {
+        return new TraceIds(tracerProvider);
     }
 
     /**

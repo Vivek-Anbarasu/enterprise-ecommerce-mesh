@@ -12,6 +12,8 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      ssl:
+        enabled: ${REDIS_SSL_ENABLED:false}
       timeout: 1s
       lettuce:
         pool:
@@ -29,6 +31,10 @@ spring:
       # crash mid-dispatch replays the message rather than losing it.
       enable-auto-commit: false
       max-poll-records: 50
+    properties:
+      security.protocol: ${KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
+      sasl.mechanism: ${KAFKA_SASL_MECHANISM:PLAIN}
+      sasl.jaas.config: ${KAFKA_SASL_JAAS_CONFIG:}
     ssl:
       trust-store-location: ${KAFKA_TRUSTSTORE_LOCATION:}
 
@@ -79,7 +85,7 @@ management:
       probability: ${TRACING_SAMPLE_RATE:0.1}
   otlp:
     tracing:
-      endpoint: ${OTLP_ENDPOINT:http://jaeger-collector.observability.svc.cluster.local:4318/v1/traces}
+      endpoint: ${OTLP_ENDPOINT:http://localhost:4318/v1/traces}
 
 logging:
   structured:

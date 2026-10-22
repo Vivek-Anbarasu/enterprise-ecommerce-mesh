@@ -34,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @TestPropertySource(properties = {
         "mesh.environment=local",
         "ENTRA_TENANT_ID=11111111-1111-1111-1111-111111111111",
+        "ENTRA_AUDIENCE=api://11111111-1111-1111-1111-111111111111",
         "spring.profiles.active=entra"
 })
 class GatewayEntraProfileTest {
