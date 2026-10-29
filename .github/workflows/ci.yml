@@ -1,8 +1,14 @@
 name: CI
 
-# The suite is deliberately Docker-free: Redis and Kafka clients connect lazily, the
-# inventory slice runs on H2 in PostgreSQL mode, and everything else is mocked at the
-# boundary it is testing. That keeps this workflow to a single job and ~3 minutes.
+# The suite needs exactly one external service: MongoDB on localhost:27017.
+# ai-orchestrator-service builds a MongoTemplate while its application context starts, so
+# its context tests block for the server timeout and then fail without one - they do not
+# degrade gracefully the way an unavailable model file does. Everything else runs without
+# infrastructure: the inventory slices use H2 in PostgreSQL mode, and no test opens a Kafka
+# or Redis connection, so those clients connect lazily and contexts start regardless.
+#
+# This is why the job carries a service container instead of being "Docker-free". One
+# container, one job, ~5 minutes.
 
 on:
   push:
@@ -26,6 +32,17 @@ jobs:
     name: Build and test (JDK 25)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping:1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Check out
