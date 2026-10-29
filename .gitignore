@@ -2,6 +2,7 @@
 target/
 *.jar
 *.jar.original
+*.class
 .mvn/wrapper/maven-wrapper.jar
 
 # IDE
