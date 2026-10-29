@@ -336,13 +336,19 @@ Conventions:
 ## Testing
 
 ```bash
-mvn test          # 107 tests, ~75 seconds, no Docker required
+mvn test          # 107 tests, ~75 seconds; needs a MongoDB on localhost:27017
 mvn verify        # same suite plus failsafe; skipITs=true until the first *IT exists
 ```
 
-The suite needs no Docker, no database and no broker. Redis and Kafka clients connect lazily,
-so contexts start without them; the inventory slices run on H2 in PostgreSQL mode; everything
-else is mocked at the boundary it is testing. CI runs `mvn verify` on every push.
+The suite needs no Docker and no broker, but it does need a **MongoDB on `localhost:27017`**.
+`ai-orchestrator-service` builds a `MongoTemplate` while its application context starts, so its
+context tests wait for the server timeout and then fail without one — they do not degrade
+gracefully the way a missing embedding model does. Locally that is the `mongod` from
+`docker-compose.yml`; CI starts a `mongo:7` service container for the same reason.
+
+Nothing else is required. No test opens a Kafka or Redis connection, so those clients connect
+lazily and contexts start without them; the inventory slices run on H2 in PostgreSQL mode; and
+everything else is mocked at the boundary it is testing. CI runs `mvn verify` on every push.
 
 The tests are shaped around properties a happy-path test would miss:
 
