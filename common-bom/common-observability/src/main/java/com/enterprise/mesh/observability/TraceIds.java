@@ -5,9 +5,9 @@ import java.util.Map;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.lang.Nullable;
 import org.springframework.util.StringUtils;
 
 /**
