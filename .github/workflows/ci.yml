@@ -1,0 +1,64 @@
+name: CI
+
+# The suite is deliberately Docker-free: Redis and Kafka clients connect lazily, the
+# inventory slice runs on H2 in PostgreSQL mode, and everything else is mocked at the
+# boundary it is testing. That keeps this workflow to a single job and ~3 minutes.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MAVEN_OPTS: -Xmx2g
+
+jobs:
+  build:
+    name: Build and test (JDK 25)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      # verify, not test: it runs the full lifecycle including spring-boot:repackage,
+      # so a broken repackage configuration fails here rather than at release time.
+      - name: Build and test
+        run: mvn -B -ntp verify
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: "**/target/surefire-reports/**"
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            **/target/*.log
+            **/target/surefire-reports/*.txt
+          if-no-files-found: ignore
+          retention-days: 7
