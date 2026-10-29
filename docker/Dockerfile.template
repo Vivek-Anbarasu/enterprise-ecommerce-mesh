@@ -1,0 +1,88 @@
+# syntax=docker/dockerfile:1.7
+# ---------------------------------------------------------------------------
+# Shared image build for every mesh service.
+#
+# This template is intentionally NOT used for the primary build path: the
+# project builds images with Jib (see pom.xml, profile `container`), which needs
+# no Docker daemon and produces reproducible layers. This Dockerfile exists for
+# environments where a daemon-only pipeline is mandatory.
+#
+# Build (from the repository root):
+#   docker build -f docker/Dockerfile.template \
+#     --build-arg SERVICE_JAR=order-service/target/order-service-1.0.0.jar \
+#     --build-arg SERVICE_NAME=order-service -t order-service:1.0.0 .
+# ---------------------------------------------------------------------------
+ARG JDK_IMAGE=eclipse-temurin:25-jre-alpine
+
+# ---------- Stage 1: resolve dependencies ----------
+# Dependency resolution is its own stage so that editing source does not
+# invalidate the (slow) Maven layer.
+FROM maven:3.9-eclipse-temurin-25-alpine AS deps
+WORKDIR /build
+
+# Copy only descriptors first for maximum layer caching.
+COPY pom.xml .
+COPY common-bom/pom.xml common-bom/
+COPY common-bom/common-security/pom.xml common-bom/common-security/
+COPY common-bom/common-observability/pom.xml common-bom/common-observability/
+COPY common-bom/common-messaging/pom.xml common-bom/common-messaging/
+COPY api-gateway/pom.xml api-gateway/
+COPY core-services/customer-service/pom.xml core-services/customer-service/
+COPY core-services/order-service/pom.xml core-services/order-service/
+COPY core-services/payment-service/pom.xml core-services/payment-service/
+COPY catalog-services/product-catalog-service/pom.xml catalog-services/product-catalog-service/
+COPY catalog-services/review-rating-service/pom.xml catalog-services/review-rating-service/
+COPY transactional-caches/shopping-cart-service/pom.xml transactional-caches/shopping-cart-service/
+COPY transactional-caches/inventory-service/pom.xml transactional-caches/inventory-service/
+COPY async-processors/notification-service/pom.xml async-processors/notification-service/
+COPY async-processors/shipping-delivery-service/pom.xml async-processors/shipping-delivery-service/
+COPY ai-orchestrator-service/pom.xml ai-orchestrator-service/
+
+# go-offline still needs the sources of the shared modules to be resolvable.
+COPY common-bom/common-security/src common-bom/common-security/src
+COPY common-bom/common-observability/src common-bom/common-observability/src
+COPY common-bom/common-messaging/src common-bom/common-messaging/src
+RUN mvn -B -q dependency:go-offline -DexcludeArtifactIds=spring-boot-maven-plugin || true
+
+# ---------- Stage 2: compile ----------
+FROM deps AS build
+ARG SERVICE_MODULE
+ARG SERVICE_JAR
+COPY . .
+RUN mvn -B -q clean package -DskipTests -pl "${SERVICE_MODULE}" -am
+
+# ---------- Stage 3: runtime ----------
+FROM ${JDK_IMAGE} AS runtime
+ARG SERVICE_NAME
+ARG SERVICE_JAR
+
+# Run unprivileged. The numeric UID avoids a name lookup against a directory
+# the image does not ship.
+RUN addgroup -S -g 10001 mesh && adduser -S -u 10001 -G mesh mesh
+
+WORKDIR /app
+
+# Spring Boot layertools splits dependencies from application classes, so code
+# changes do not force a re-pull of the (large) dependency layer.
+RUN mkdir -p /app/dependencies /app/spring-boot-loader /app/application
+COPY --from=build --chown=mesh:mesh /build/${SERVICE_JAR} /app/application.jar
+RUN java -Djarmode=layertools -jar /app/application.jar extract
+
+# Correct ownership: the build ran as root.
+USER 10001:10001
+
+# Container awareness (cgroup limits) is on by default since JDK 10 and the
+# -XX:+UseContainerSupport flag was removed outright in modern JDKs, so passing
+# it would abort startup with "Unrecognized VM option".
+ENV SERVICE_NAME=${SERVICE_NAME} \
+    JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError" \
+    SPRING_PROFILES_ACTIVE=production
+
+# 8080 for HTTP services; 8081 for the headless notification worker. Override
+# per service with SERVER_PORT / MANAGEMENT_PORT.
+EXPOSE 8080 8081
+
+# The JVM has no init process, so it must be PID 1 to receive SIGTERM and run
+# graceful shutdown hooks. Without `exec`, signals go to the shell and every
+# rollout becomes a 30-second kill.
+ENTRYPOINT ["java", "-jar", "/app/application.jar"]

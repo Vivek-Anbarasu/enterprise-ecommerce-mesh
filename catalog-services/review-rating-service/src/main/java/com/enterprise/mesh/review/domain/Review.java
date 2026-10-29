@@ -26,7 +26,7 @@ import lombok.Getter;
  *
  * <p>Migration: Spring creates the new indexes but never drops the old ones, so
  * {@code ux_review_product_customer} and {@code idx_review_product_visible} must
- * be dropped explicitly. See platform/docker/mongo-init-reviews.js.
+ * be dropped explicitly. See docker/mongo-init-reviews.js.
  *
  * <p><b>Read-only, deliberately.</b> {@code @Getter} only - there is no
  * {@code @Setter}. Each mutable field is owned by exactly one of the three

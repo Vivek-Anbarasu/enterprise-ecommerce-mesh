@@ -17,12 +17,24 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * Shipment lifecycle.
+ *
+ * <p>Two surfaces, deliberately on different paths:
+ *
+ * <ul>
+ *   <li>{@code /internal/shipping/**} — reads and cancellation. Mesh-internal only.
+ *   <li>{@code /api/shipping/webhooks/**} — the carrier webhook. This is a
+ *       partner-facing surface entered through the api-gateway, so it lives under
+ *       {@code /api}. It cannot live under {@code /internal}: the waypoint's
+ *       {@code deny-internal-from-gateway} policy denies the gateway principal
+ *       there, which is exactly the trust boundary that should stay closed.
+ * </ul>
+ */
 @RestController
-@RequestMapping("/internal/shipping")
 @Tag(name = "Shipping", description = "Shipment lifecycle")
 @RequiredArgsConstructor
 public class ShippingController {
@@ -41,7 +53,7 @@ public class ShippingController {
         }
     }
 
-    @GetMapping("/{shipmentId}")
+    @GetMapping("/internal/shipping/{shipmentId}")
     @PreAuthorize("hasAnyRole('CUSTOMER','ADMIN','SERVICE')")
     @Operation(summary = "Fetch a shipment")
     public ShipmentResponse get(@PathVariable String shipmentId,
@@ -49,7 +61,7 @@ public class ShippingController {
         return ShipmentResponse.from(shippingService.get(shipmentId, tenant(tenantId)));
     }
 
-    @GetMapping("/orders/{orderId}")
+    @GetMapping("/internal/shipping/orders/{orderId}")
     @PreAuthorize("hasAnyRole('CUSTOMER','ADMIN','SERVICE')")
     @Operation(summary = "Shipments for an order")
     public List<ShipmentResponse> forOrder(
@@ -63,11 +75,13 @@ public class ShippingController {
     /**
      * Carrier status webhook.
      *
-     * <p>Restricted to the carrier service account; in production this path is
-     * additionally protected by an Istio AuthorizationPolicy so only the carrier
-     * identity can reach it.
+     * <p>Restricted to the carrier service account. The path is under {@code /api}
+     * because it enters through the api-gateway and {@code /internal/*} is denied to
+     * the gateway principal at the waypoint. The gateway applies a circuit breaker,
+     * bulkhead and timeout to this route, but deliberately <b>no retry</b>: a status
+     * transition is not safe to replay.
      */
-    @PostMapping("/{shipmentId}/status")
+    @PostMapping("/api/shipping/webhooks/{shipmentId}/status")
     @PreAuthorize("hasAnyRole('CARRIER','ADMIN')")
     @Operation(summary = "Apply a carrier-reported status")
     public ResponseEntity<ShipmentResponse> updateStatus(
@@ -78,7 +92,7 @@ public class ShippingController {
                 shippingService.updateStatus(shipmentId, tenant(tenantId), status)));
     }
 
-    @PostMapping("/{shipmentId}/cancel")
+    @PostMapping("/internal/shipping/{shipmentId}/cancel")
     @PreAuthorize("hasAnyRole('ADMIN','SERVICE')")
     @Operation(summary = "Cancel a shipment before carrier collection")
     public ResponseEntity<ShipmentResponse> cancel(

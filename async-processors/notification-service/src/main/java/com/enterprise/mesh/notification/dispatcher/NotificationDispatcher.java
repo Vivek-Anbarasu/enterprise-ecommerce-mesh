@@ -23,7 +23,6 @@ public interface NotificationDispatcher {
     @Component
     @Slf4j
     class LoggingDispatcher implements NotificationDispatcher {
-
         @Override
         public void dispatch(String customerId, String eventType, String orderId,
                              String totalAmount, String currency) {

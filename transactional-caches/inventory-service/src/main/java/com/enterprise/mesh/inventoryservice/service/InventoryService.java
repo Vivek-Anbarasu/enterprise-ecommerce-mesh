@@ -263,7 +263,7 @@ public class InventoryService {
                 lastFailure = e;
                 // Contention here means real shoppers are being turned away, so it
                 // is published rather than left in the log: InventoryLockContention
-                // in platform/observability/amp/rules.yaml evaluates this exact
+                // in deploy/observability/amp/rules.yaml evaluates this exact
                 // metric name and had no emitter,
                 // which meant the rule could never fire.
                 businessMetrics.increment("inventory_concurrent_update_total",

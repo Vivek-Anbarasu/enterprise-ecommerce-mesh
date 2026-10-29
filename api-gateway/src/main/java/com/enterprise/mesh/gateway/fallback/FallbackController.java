@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
@@ -28,7 +29,7 @@ import reactor.core.publisher.Mono;
  *
  * <p>Mapped with {@link RequestMapping} rather than {@code @GetMapping}. The gateway
  * forwards the original request here with its method and body untouched, so a
- * {@code POST /api/payments/...} or {@code POST /api/orders/...} arrives as a POST.
+ * {@code POST /api/orders/...} or {@code POST /api/shipping/webhooks/...} arrives as a POST.
  * Restricting these to GET would answer every checkout failure with a bare 405 and no
  * problem body at all - the client would be told its request was malformed rather than
  * that the service was unavailable, and would have nothing to back off from.
@@ -81,6 +82,28 @@ public class FallbackController {
         // be double-charged, so the client must re-submit deliberately.
         return problem(HttpStatus.SERVICE_UNAVAILABLE, "Payments Temporarily Unavailable",
                 "We could not reach the payment provider. No charge has been made.");
+    }
+
+    /**
+     * Carrier webhook fallback.
+     *
+     * <p>A webhook must never be answered with a success it did not earn: the
+     * carrier would stop retrying and the shipment would silently stay in its old
+     * state. So this is always a 503 with {@code Retry-After}, and the body says
+     * explicitly that the transition was not applied.
+     */
+    @RequestMapping(path = "/shipping", produces = MediaType.APPLICATION_PROBLEM_JSON_VALUE)
+    public Mono<ProblemDetail> shipping(ServerWebExchange exchange) {
+        exchange.getResponse().getHeaders().set(HttpHeaders.RETRY_AFTER, "30");
+        if (shedBy(exchange, "shipping")) {
+            return problem(HttpStatus.SERVICE_UNAVAILABLE, "Shipping Updates At Capacity",
+                    "The shipment update was not accepted because shipping is at capacity. "
+                            + "Retry with backoff; the transition was not applied.");
+        }
+        log.error("Shipping circuit breaker open; refusing carrier webhook");
+        return problem(HttpStatus.SERVICE_UNAVAILABLE, "Shipping Updates Temporarily Unavailable",
+                "The shipment update could not be accepted. Retry with backoff; "
+                        + "the transition was not applied.");
     }
 
     @RequestMapping(path = "/ai", produces = MediaType.APPLICATION_PROBLEM_JSON_VALUE)

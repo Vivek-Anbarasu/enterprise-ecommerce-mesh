@@ -19,7 +19,7 @@
 #   kubectl -n istio-system get cm istio -o jsonpath='{.data.mesh}' | grep -A5 extensionProviders
 #
 # The destination is the in-cluster OpenTelemetry Collector
-# (platform/observability/otel-collector), not Application Insights directly.
+# (deploy/observability/otel-collector), not Application Insights directly.
 # Azure Monitor's OTLP ingest path is authenticated and Istio's extension
 # provider cannot attach a credential, so the collector is what terminates OTLP
 # here and exports onward with its own connection string.

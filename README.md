@@ -1,154 +1,371 @@
 # Enterprise Multi-Tenant E-Commerce Mesh
 
-An enterprise-grade, high-throughput e-commerce platform built on a cloud-native **Spring Boot Microservices Architecture**. This repository serves as a production-blueprint demonstrating **Domain-Driven Design (DDD)**, distributed transaction orchestration via the **Saga Pattern**, reliable async messaging using the **Transactional Outbox Pattern**, strict multi-tenant isolation, and a browser-facing **Backend-for-Frontend** layer that keeps OAuth2 tokens out of the browser.
+A twelve-service e-commerce backend on **Spring Boot 4.1 / Java 25**, deployed to **Azure AKS**
+behind an **Istio ambient** mesh. Tenant-scoped at every hop, event-driven at the async edge, and
+synchronous only where a shopper is actually waiting.
 
 ---
 
-## 🏗️ System Architecture
+## Table of contents
 
-The platform is engineered as a decoupled network of specialized microservices communicating via synchronous REST APIs behind a central Ingress Gateway, alongside high-throughput asynchronous event streams managed by **Apache Kafka**.
+- [Architecture](#architecture)
+- [Services](#services)
+- [Tech stack](#tech-stack)
+- [Repository layout](#repository-layout)
+- [Getting started](#getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Start the infrastructure](#start-the-infrastructure)
+  - [Build](#build)
+  - [Run the services](#run-the-services)
+- [Configuration](#configuration)
+- [Checkout saga](#checkout-saga)
+- [Messaging](#messaging)
+- [Security and tenancy](#security-and-tenancy)
+- [Observability](#observability)
+- [Testing](#testing)
+- [Deployment](#deployment)
+- [Documentation index](#documentation-index)
+- [License](#license)
 
-```text
-                        [ Client Requests ]
-                                 │
-                                 ▼
-                     ┌───────────────────────┐
-   Browser ─────────▶│       BFF Layer      │  (Session cookie in, Redis
-   (React SPA)       │      bff-service      │   token bundle, silent refresh,
-                     └───────────┬───────────┘   response aggregation)
-                                 │  Bearer token
-                                 ▼
-                        ┌─────────────────┐
-   Mobile / Partner ───▶│   API Gateway   │ (Rate Limiting, JWT Validation,
-                        └────────┬────────┘  Tenant Header Propagation)
-                                 │
-         ┌───────────────────────┼───────────────────────┐
-         ▼                       ▼                       ▼
- ┌──────────────┐        ┌──────────────┐        ┌──────────────┐
- │ Catalog Svc  │        │  Cart Svc    │        │  Order Svc   │ (Saga Orchestrator &
- └──────────────┘        └──────────────┘        └──────┬───────┘  Outbox Store)
-                                                        │
-                                                        ▼ (Transactional Outbox)
-                                                ┌──────────────┐
-                                                │ Outbox Relay │
-                                                └──────┬───────┘
-                                                        │
-                                                        ▼ [ Apache Kafka ]
-                                                        │
-                                       ┌───────────────┴───────────────┐
-                                       ▼                               ▼
-                               ┌──────────────┐                ┌──────────────┐
-                               │ Shipping Svc │                │ Notification │
-                               └──────────────┘                └──────────────┘
+---
+
+## Architecture
+
+```
+                        ┌───────────────────────────────┐
+  browser ──HTTPS──────▶│  Application Gateway for      │  WAF, TLS termination,
+                        │  Containers (AGC)             │  edge rate limiting
+                        └───────────────┬───────────────┘
+                                        │  only AGC's CIDR may reach the pods
+                    ┌───────────────────┴───────────────────┐
+        /bff, /login│                                       │everything else
+                    ▼                                       ▼
+        ┌───────────────────────┐               ┌───────────────────────┐
+        │     bff-service       │  bearer token │      api-gateway      │
+        │        :8091          │──────────────▶│        :8080          │
+        │ session cookie only;  │               │ JWT validation,       │
+        │ tokens in Redis       │               │ per-tenant limits,    │
+        └───────────────────────┘               │ circuit breakers      │
+                                                └───────────┬───────────┘
+                                                            │
+   ┌────────────┬────────────┬────────────┬─────────────────┼────────────┬────────────┐
+   ▼            ▼            ▼            ▼                 ▼            ▼            ▼
+catalog     review      cart        customer            order        inventory   payment
+:8085       :8088       :8086       :8087                :8082        :8083       :8084
+   │            │            │            │                 │            │            │
+   └── MongoDB/Redis ────────┘            └── PostgreSQL ───┴────────────┴────────────┘
+                                                             │
+                                                    order.events (Kafka)
+                                                    │                    │
+                                                    ▼                    ▼
+                                          notification-service   shipping-delivery
+                                          (no HTTP listener)     :8089
 ```
 
-The **BFF** is the only workload the browser talks to. It terminates an opaque `HttpOnly` session cookie, keeps the Entra ID token bundle server-side in Redis, refreshes it silently before it expires, and re-issues it as a bearer token to the gateway. The SPA therefore never holds a token, and a stolen session cookie is worth one idle-timeout window rather than an entire token lifetime. It sits **in front of** the gateway rather than behind it, so the gateway remains the single mesh entry point for every other client. Full design: [docs/BFF-SESSION.md](docs/BFF-SESSION.md).
+Two edge entry points, one certificate, routed by path: the SPA's `/bff` and `/login` go to the
+BFF, everything else goes straight to the gateway exactly as it did before the BFF existed. That
+means an unrecognised path fails safe rather than 404ing at the edge.
 
----
+`ai-orchestrator-service` (`:8090`) is a peer of the catalogue services, reached through the
+gateway like any other read path.
 
-## 📦 Repository Structure & Module Blueprint
+## Services
 
-The project is structured as a **Maven Multi-Module Repository** to decouple business domains, segregate transactional processing tiers, and promote infrastructure reusability:
+| Service | Port | Tier | Store | Responsibility |
+|---|---|---|---|---|
+| `api-gateway` | 8080 | edge | Redis | JWT validation, per-tenant rate limiting, routing, circuit breakers |
+| `bff-service` | 8091 | edge | Redis | SPA session cookie; holds the Entra token bundle server-side and re-issues it as a bearer token |
+| `product-catalog-service` | 8085 | edge | MongoDB, Redis | Products and categories; read-heavy, Redis in front |
+| `review-rating-service` | 8088 | edge | MongoDB, Redis | Reviews, rating aggregates, moderation state |
+| `shopping-cart-service` | 8086 | edge | Redis | Cart contents and totals |
+| `ai-orchestrator-service` | 8090 | edge | MongoDB, Redis | Semantic product search, recommendations, shopping assistant |
+| `customer-service` | 8087 | core | PostgreSQL | Profiles, addresses, preferences; system of record for shopper identity |
+| `order-service` | 8082 | core | PostgreSQL | Checkout saga orchestrator; owns order lifecycle and the transactional outbox |
+| `payment-service` | 8084 | core | PostgreSQL | Authorisation, capture, refunds |
+| `inventory-service` | 8083 | core | PostgreSQL, Redis | Stock levels and reservations |
+| `shipping-delivery-service` | 8089 | async | PostgreSQL | Shipment lifecycle, carrier integration |
+| `notification-service` | — | async | Redis | Kafka-driven email/SMS/push. Headless: no business HTTP listener, probes and metrics on 8081 |
 
-*   **`api-gateway/`** — Edge service implementing routing matrices, path-based filters, and resilient token-bucket rate limiting. Terminates all non-browser client traffic.
-*   **`bff-service/`** — Browser-facing backend for frontend. OAuth2 authorization-code login against Microsoft Entra ID, a Redis-backed session holding the token bundle, silent refresh with an early-expiry skew window, CSRF protection for the cookie-authenticated surface, and concurrent multi-service response aggregation that degrades per section rather than failing wholesale.
-*   **`common-bom/`** — Centralized infrastructure parent containing shareable, modular Spring Boot auto-configurations:
-    *   `common-security`: Reusable JWT claims extraction, tenant context filtering, and RFC-7807 problem detail exception mapping.
-    *   `common-messaging`: Abstracted Kafka event publishers, consumer profiling, and automated cloud headers management.
-    *   `common-observability`: Distributed tracing interceptors mapping unified correlation IDs across thread boundaries and network hops.
-*   **`core-services/`** — Transactional source-of-truth microservices:
-    *   `order-service`: Core domain orchestrating multi-step checkout lifecycles and managing database-backed state transitions.
-    *   `customer-service`: Domain tracking customer registrations, operational profiles, and address aggregates.
-    *   `payment-service`: Payment processor isolating remote banking integrations from the downstream state machine.
-*   **`transactional-caches/`** — Write-heavy layers utilizing fast locking structures:
-    *   `inventory-service`: Real-time stock reservation matrix utilizing explicit stock line items to prevent double-selling.
-    *   `shopping-cart-service`: High-concurrency runtime handling session-state caching and rapid additions/modifications.
-*   **`catalog-services/`** — Read-optimized storefront operational domains:
-    *   `product-catalog-service`: Highly scalable queries returning indexed item properties, models, and tiered pricing.
-    *   `review-rating-service`: Service tracking product quality indexing, aggregate ratings, and customer feedback.
-*   **`async-processors/`** — Decoupled event consumers processing heavy workflows asynchronously:
-    *   `shipping-delivery-service`: Carrier lifecycle listener managing physical fulfillment and third-party dispatches.
-    *   `notification-service`: Multi-channel communication engine executing asynchronous transactional notifications.
-*   **`ai-orchestrator-service/`** — Intelligence component tracking client purchase profiles and serving real-time affinity recommendations.
-*   **`deploy/`** — Production deployment infrastructure containing Docker definitions and localized Kubernetes Helm charts.
+Each PostgreSQL service owns its own database (`orders_db`, `inventory_db`, `payments_db`,
+`customers_db`, `shipping_db`). No service reads another's schema.
 
----
+## Tech stack
 
-## ⚡ Core Distributed Systems Patterns (Interview Deep Dives)
+| Concern | Choice |
+|---|---|
+| Runtime | Java 25, virtual threads (`spring.threads.virtual.enabled`) |
+| Framework | Spring Boot 4.1.1, Spring Cloud 2025.1.3 |
+| Persistence | PostgreSQL 15 + Flyway, MongoDB, Redis |
+| Messaging | Kafka (KRaft), Debezium CDC out of the order outbox |
+| Resilience | Resilience4j circuit breakers and bulkheads; timeout budgets in config, not code |
+| Security | Spring Security OAuth2 resource server, Entra ID tokens, tenant claim resolution |
+| API docs | springdoc-openapi 3.1.1 (`/swagger-ui.html`, `/v3/api-docs`) |
+| Observability | OpenTelemetry (OTLP) → collector, Micrometer → Prometheus, Grafana, Jaeger locally |
+| Mesh | Istio **ambient** (ztunnel L4 + shared waypoint L7), Gateway API |
+| Cloud | Azure AKS, ACR, Key Vault, Service Bus/Event Hubs, Azure Monitor managed Prometheus |
+| Packaging | Jib (primary, daemonless), `docker/Dockerfile.template` (fallback), Helm, Bicep |
+| Testing | JUnit 5, Testcontainers 2.0.5, surefire/failsafe |
 
-### 1. Distributed Transaction Orchestration (The Saga Pattern)
-To ensure ultimate data consistency across distinct database boundaries without resorting to slow, blocking Two-Phase Commit (2PC) blocks, the project utilizes an **Orchestrator-Based Saga**.
-*   **Implementation Location:** See `CheckoutSagaOrchestrator.java` inside `order-service`.
-*   **How it works:** When a client initiates checkout, the `order-service` creates a pending record and coordinates a sequential workflow across services. It issues commands to reserve inventory (`inventory-service`) and process charges (`payment-service`).
-*   **Compensating Transactions:** If the `payment-service` throws a failure or returns a decline code, the orchestrator catches the event and broadcasts back-tracking compensation requests to the `inventory-service` to immediately clear reservations and release stocks seamlessly.
+## Repository layout
 
-### 2. Reliable Asynchronous Event Streaming (Transactional Outbox Pattern)
-To avoid data loss resulting from network hiccups or messaging broker downtime during database operations, the platform isolates DB commits from Kafka broadcasts.
-*   **Implementation Location:** See `OutboxEvent.java`, `OutboxEventRepository.java`, and `OutboxService.java` inside `order-service`.
-*   **How it works:** Whenever an order transaction occurs, an append-only `OutboxEvent` record containing the payload message is written within the **exact same database transaction** as the order state modification, so "order persisted" and "event recorded" commit or roll back together.
-*   **Delivery Mechanism:** Delivery is Change Data Capture (CDC). Debezium tails the PostgreSQL write-ahead log and its outbox event router publishes every inserted row to Apache Kafka. There is no polling relay and no `published_at` bookkeeping - the WAL, not a column, is the record of what was emitted, so nothing can fall behind a claim lock.
+```
+common-bom/                 shared dependency management
+  common-messaging/         topics, retry, dead-letter recovery, outbox support
+  common-observability/     metrics, tracing, structured logging
+  common-security/          JWT, tenant context, RFC 9457 handlers
+api-gateway/                Spring Cloud Gateway edge
+bff-service/                session-cookie BFF for the SPA
+core-services/              order, payment, customer
+catalog-services/           product-catalog, review-rating
+transactional-caches/       inventory, shopping-cart
+async-processors/           notification, shipping-delivery
+ai-orchestrator-service/    semantic search and recommendations
 
-### 3. Concurrency Protection & Stock Optimization
-*   **Implementation Location:** See `InventoryReservation.java` and `ReservationExpirySweeper.java` inside `inventory-service`.
-*   **High-Volume Protection:** Rather than using blocking row-level database locks that degrade throughput during concurrent flash-sales, the `inventory-service` applies an optimistic locking model and captures intent through transient transaction-locked `InventoryReservation` lines. If a race condition emerges, the thread surfaces a clean `ConcurrentStockUpdateException`.
-*   **TTL Reclamation:** Abandoned or unpaid reservations are systematically scraped and reallocated to the available pool by a scheduled background daemon (`ReservationExpirySweeper`).
+docker/                     local infrastructure init scripts + Dockerfile template
+deploy/                     everything applied to a cluster
+  helm/                     the release (chart + prod overrides)
+  bicep/                    Azure WAF policy and alert rules
+  istiod/                   cluster-scoped MeshConfig fragments
+  azure/                    Azure observability runbook
+  kubernetes/               plain-YAML reference manifests (base, debezium)
+  observability/            Prometheus, Grafana, OTel collector, Azure Monitor rules
+hld/                        architecture diagram (drawio)
+docker-compose.yml          local stateful dependencies only
+```
 
-### 4. Browser Sessions Without Tokens in the Browser (BFF Pattern)
-*   **Implementation Location:** See `SessionTokenService.java` and `BffAggregationService.java` inside `bff-service`.
-*   **How it works:** The browser holds one opaque, `HttpOnly`, `SameSite=Lax` cookie naming a server-side session in Redis. The token bundle lives in that session as a framework-owned `OAuth2AuthorizedClient`. On every request the service resolves the session to a live access token, refreshing it **90 seconds before expiry** rather than on expiry, so no request is ever lost to a clock boundary.
-*   **Concurrency:** Resolution is serialised on a striped per-session lock. Entra rotates refresh tokens on use, so two concurrent refreshes would race and one would be rejected; the loser re-reads the session and reuses the winner's tokens rather than failing the shopper.
-*   **Why it matters:** CSRF protection must stay **enabled** here, unlike on every stateless service in the mesh — a cookie is attached by the browser with no cooperation from the SPA. Full design, including the failure modes: [docs/BFF-SESSION.md](docs/BFF-SESSION.md).
+The rule: if it ends up in a cluster it lives under `deploy/`; if it only runs on a laptop or
+builds an image, it does not.
 
----
+## Getting started
 
-## 🛡️ Enterprise Security & Multi-Tenancy
+### Prerequisites
 
-*   **Tenant Forwarding Matrix:** The edge layer relies on a customized `TenantForwardingFilter` to discover incoming client organization tokens, construct thread-bound multi-tenant contexts, and seamlessly forward them into down-stream HTTP headers. Any client-supplied `X-Tenant-ID` is **deleted** and re-derived from the validated JWT, so a forged header cannot win.
-*   **Role-Based Isolation:** Integrated through custom Spring Security configuration filters mapping role scopes extracted straight from active OAuth2/JWT authorization matrices. The access profiles automatically segregate visibility boundaries (e.g., preventing parallel multi-tenant structures from viewing crossed catalog indexes or profile sets).
-*   **Credential Containment:** The gateway strips `Cookie` from every forwarded request. Combined with the BFF's server-side token bundle, a session identifier never travels past the edge that issued it, and downstream services are authenticated by the bearer token alone.
-*   **Enumerated CORS Origins at the Browser Edge:** The BFF overrides the shared wildcard CORS source with exact storefront origins, because a wildcard pattern paired with `allowCredentials(true)` would defeat `SameSite` on the session cookie.
+- **JDK 25**
+- **Maven 3.9+** (no wrapper is checked in)
+- **Docker** with Compose (the build's tests use Testcontainers)
 
----
+### Start the infrastructure
 
-## 📊 Distributed Observability
+The compose file brings up stateful dependencies only — no application containers — so a code
+change needs no image rebuild.
 
-Every system microservices instance mounts a structural trace filter (`CorrelationIdFilter`). It captures or constructs a unique UUID tracking chain identifier for all inbound request sequences. This correlation payload is programmatically mapped into outbound HTTP headers and appended directly into active Kafka `CloudEventHeaders`, generating an un-broken trace trail across the cluster that flows into **Prometheus and Grafana** dashboards.
+```bash
+docker compose up -d
+```
 
-The BFF additionally reports session and aggregation outcomes as business metrics under the `bff_session` and `bff_aggregation` domains — including `refresh_raced_recovered` and `no_refresh_token`, the latter of which is worth alerting on because it means a scope list has lost `offline_access` and every session will silently die an hour later.
+| Endpoint | URL |
+|---|---|
+| PostgreSQL | `localhost:5432` (`postgres` / `postgres`) |
+| MongoDB | `localhost:27017` |
+| Redis | `localhost:6379` |
+| Kafka (host listener) | `localhost:29092` |
+| Jaeger UI | http://localhost:16686 |
+| Prometheus | http://localhost:9090 |
+| Grafana | http://localhost:3000 (`admin` / `admin`) |
 
----
+The Kafka external listener is `29092`, not `9092` — `9092` is only reachable from inside the
+compose network and from containers. Host-run services must set `KAFKA_BOOTSTRAP_SERVERS`.
 
-## 🚀 Deployment & Local Setup
+### Build
 
-### System Prerequisites
-Ensure your local environment includes:
-*   Java 25 JDK
-*   Apache Maven 3.9+
-*   Docker & Docker Compose
+```bash
+mvn clean install
+```
 
-### Running the Full Mesh Locally
-1. Clone this repository to your workstation, then enter the project directory:
+Add `-DskipTests` for a fast build. Modules depend on the `common-bom` artifacts, so a single
+module cannot be built in isolation before the first full install.
+
+### Run the services
+
+Each service reads its peer URLs from environment variables that default to in-cluster DNS names
+(`http://inventory-service:8083`). Running on the host means overriding them:
+
+```bash
+export KAFKA_BOOTSTRAP_SERVERS=localhost:29092
+export OTLP_ENDPOINT=http://localhost:4318/v1/traces
+
+# api-gateway's routing targets
+export MESH_CATALOG_URI=http://localhost:8085
+export MESH_REVIEW_URI=http://localhost:8088
+export MESH_CUSTOMER_URI=http://localhost:8087
+export MESH_CART_URI=http://localhost:8086
+export MESH_ORDER_URI=http://localhost:8082
+export MESH_PAYMENT_URI=http://localhost:8084
+export MESH_INVENTORY_URI=http://localhost:8083
+```
+
+```bash
+mvn -pl core-services/order-service spring-boot:run
+```
+
+`order-service` additionally needs `INVENTORY_URI=http://localhost:8083` and
+`PAYMENT_URI=http://localhost:8084`. Start the gateway last.
+
+Without the `entra` profile the gateway starts **without** token validation and logs a warning.
+Catalogue reads (`GET /api/products/**`, `/api/categories/**`, `/api/reviews/**`) are anonymous;
+everything else returns 401. That is the fail-closed default, not a bug — set the `entra` profile
+to validate real tokens.
+
+Per-service health and metrics are on `/actuator/health` and `/actuator/prometheus`.
+
+## Configuration
+
+Everything is environment-substituted with a local default, so the same jar runs in both places.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `MESH_ENV` | `local` | Gates safety checks; production refuses to start on insecure settings |
+| `DB_URL` / `DB_USERNAME` / `DB_PASSWORD` | `jdbc:postgresql://localhost:5432/<db>` / `postgres` / `postgres` | Per service |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Use `localhost:29092` from the host |
+| `REDIS_HOST` / `REDIS_PORT` | `localhost` / `6379` | |
+| `OTLP_ENDPOINT` | `http://localhost:4318/v1/traces` | |
+| `TRACING_SAMPLE_RATE` | `0.1` | |
+| `LOG_FORMAT` | `ecs` | Structured console logging |
+| `KAFKA_SECURITY_PROTOCOL` / `KAFKA_SASL_JAAS_CONFIG` | `PLAINTEXT` / empty | Event Hubs uses `SASL_SSL` |
+| `ENTRA_TENANT_ID` / `ENTRA_CLIENT_ID` / `ENTRA_REDIRECT_URI` | unset | `entra` profile only |
+
+Profiles are used sparingly: `entra` on the gateway and the BFF. Everything else is plain
+`application.yml`.
+
+## Checkout saga
+
+Checkout is the one flow that must be synchronous, because a shopper is waiting on the result.
+It is a **compensatable saga** driven by `CheckoutSagaOrchestrator` in `order-service`, not by
+messages: an orchestrator that fires a request onto a topic and returns has nothing to compensate
+against when the step fails.
+
+```
+reserve inventory ──▶ authorise payment ──▶ confirm order
+       │                       │
+       └──── compensate ◀──────┘
+```
+
+- **Claims** — each step is claimed with a lease before it is attempted, so a crashed
+  orchestrator cannot be resumed by a second replica mid-flight.
+- **Timeouts** — the saga's `RestClient` has a connect/read budget (`saga.connect-timeout`,
+  `saga.read-timeout`); without one, a hung participant holds the shopper's request open forever.
+- **Compensation** — failed checkouts enqueue compensation actions in PostgreSQL. A worker retries
+  them with exponential backoff, so a payment service that is down for five minutes is refunded
+  when it returns rather than being written off.
+- **Recovery** — `StaleSagaSweeper` fails checkouts whose lease expired mid-flight, then
+  compensates them.
+- **Circuit breakers** — inventory and payment each have one. A `409 Sold out` from inventory is a
+  legitimate answer, not a failure, and does not count toward the breaker's error rate.
+
+Confirmed orders are published through a **transactional outbox** written in the same transaction
+as the order row. `order.events` is produced by Debezium reading the outbox table out of the WAL;
+there is no polling relay and therefore no gap between commit and publish.
+
+## Messaging
+
+Only topics with a real producer *and* consumer are declared in `MessagingTopics`:
+
+| Topic | Producer | Consumer |
+|---|---|---|
+| `order.events` | order-service (via outbox → Debezium) | notification-service |
+| `product.events` | product-catalog-service | ai-orchestrator-service (keeps the semantic-search vector index in step) |
+
+Conventions:
+
+- Name is `<domain>.events`; every topic is partitioned and keyed by aggregate id, so ordering is
+  guaranteed per aggregate while throughput scales horizontally.
+- Dead letters go to `<topic>.dlq`. Offsets are committed **after** the handler returns
+  (`enable-auto-commit: false`), so a crash replays rather than loses.
+- Consumer group ids live on the `@KafkaListener` annotation, not in `application.yml`, where they
+  would be silently ignored.
+
+## Security and tenancy
+
+- **Edge** — AGC terminates TLS and enforces the WAF; only its CIDR is allowed to reach the pods
+  (`edgeOnly` NetworkPolicies), so an in-cluster pod cannot bypass it.
+- **Token** — the gateway is an OAuth2 resource server over Entra ID tokens. The `entra` profile
+  pins both `issuer-uri` and `jwk-set-uri`; discovering the JWKS without pinning the issuer would
+  accept a token minted for any tenant in the directory.
+- **Tenant** — resolved from the JWT `tenant_id` claim first, falling back to `X-Tenant-ID` only
+  when there is no validated token. The header is authoritative only for pre-auth traffic; a
+  token is never overridden by it. Resolution lands in `TenantContext` and in MDC.
+- **Authorisation** — roles come from the token (notably `ADMIN`); errors are rendered as
+  RFC 9457 problem details with the same shape across services.
+- **BFF** — never speaks OAuth2 to the browser. The SPA gets a session cookie; the token bundle
+  stays server-side in Redis and is refreshed silently.
+
+## Observability
+
+- **Traces** — OTLP HTTP to the collector (Jaeger locally, Application Insights in Azure). Istio's
+  waypoint emits into the same pipeline; see `deploy/istiod/meshconfig-tracing.yaml`.
+- **Metrics** — Micrometer → Prometheus. Locally scraped via
+  `deploy/observability/prometheus/prometheus.yml`; in Azure, Azure Monitor managed Prometheus
+  through the PodMonitors in `deploy/observability/amp/`.
+- **Logs** — structured, ECS-shaped, one line per event.
+- **Alerts** — PromQL catalogue in `deploy/observability/amp/rules.yaml`, deployed by
+  `deploy/bicep/alerting.bicep`. Business metrics (order failures, DLQ fills) are emitted from
+  application code rather than inferred from HTTP status codes.
+
+## Testing
+
+```bash
+mvn test          # unit tests
+mvn verify        # adds failsafe ITs; skipITs=true by default
+```
+
+Testcontainers starts PostgreSQL, MongoDB, Redis and Kafka per test class, so Docker must be
+running. The schema under test is the Flyway migration that ships, not a hand-written parallel
+one.
+
+## Deployment
+
+Images are built with **Jib**; no Docker daemon is required.
+
+```bash
+mvn -Pcontainer package   # writes <artifactId>-<version>.tar per module
+mvn -Pjib package         # pushes to ${docker.registry}/${docker.namespace}/...
+```
+
+The default target is `acrenterprise.azurecr.io/ecommerce/<service>:1.0.0`.
+
+**Helm** is the only supported path to a cluster, and it owns every service except the two edge
+workloads kept as reference manifests.
+
+```bash
+helm upgrade --install ecommerce deploy/helm/enterprise-ecommerce \
+  -n ecommerce --create-namespace \
+  -f deploy/helm/values-prod.yaml
+```
+
+Cluster prerequisites, in order:
+
+1. Istio ambient (`istioctl install --set profile=ambient`) with the Gateway API experimental
+   CRDs — the resilience HTTPRoutes use `retry`.
+2. The istiod tracing fragment, before enabling `istio.tracingProvider`. Referencing a provider
+   that is not defined makes `istioctl` reject the whole `Telemetry` resource.
    ```bash
-   cd enterprise-ecommerce-mesh
+   helm upgrade istiod istio/istiod -n istio-system \
+     -f deploy/istiod/meshconfig-tracing.yaml
    ```
-2. Build all services and compile shared libraries via Maven:
-   ```bash
-   mvn clean install -DskipTests
-   ```
-3. Boot the infrastructure (PostgreSQL, Kafka, Redis) along with all core microservices:
-   ```bash
-   docker compose up -d --build
-   ```
+3. cert-manager or Key Vault CSI, for the edge certificate.
+4. Application Gateway for Containers, then the chart.
 
-The BFF boots without any identity-provider configuration and logs a warning; only sign-in is unavailable until it is given an Entra client id and tenant id. See [docs/BFF-SESSION.md](docs/BFF-SESSION.md).
+**Azure** infrastructure that cannot be expressed as Kubernetes objects lives in `deploy/bicep`:
+the WAF policy is an ARM child resource of the Application Gateway, and the alert rules are Azure
+Monitor resources. Neither is created by the chart, and the chart fails loudly if you enable them
+without supplying the ARM IDs.
 
----
+Reference manifests under `deploy/kubernetes/` are for reading and for a `kubectl`-only bootstrap;
+they intentionally do not duplicate the mesh policy, which is rendered from
+`deploy/helm/enterprise-ecommerce/templates/istio.yaml`.
 
-## Documentation
+## Documentation index
 
-- [docs/REQUEST-FLOW-END-TO-END.md](docs/REQUEST-FLOW-END-TO-END.md) - end-to-end request flow across all eight request paths, hop by hop
-- [docs/BFF-SESSION.md](docs/BFF-SESSION.md) - BFF session model, silent refresh, aggregation and its failure modes
-- [docs/AKS-DEPLOYMENT.md](docs/AKS-DEPLOYMENT.md) - cluster setup and deployment
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - service design and data flow
-- [docs/RUNBOOK.md](docs/RUNBOOK.md) - operational procedures and alerts
-- [docs/SYSTEM_DESIGN_HLD.md](docs/SYSTEM_DESIGN_HLD.md) - high-level design decisions
+| Document | Contents |
+|---|---|
+| [`deploy/azure/README.md`](deploy/azure/README.md) | Azure Monitor workspace, managed Prometheus, App Insights, Managed Grafana, alerting order of operations |
+| [`deploy/bicep/README.md`](deploy/bicep/README.md) | WAF policy and alert rules; what Bicep owns versus the chart |
+| [`deploy/istiod/README.md`](deploy/istiod/README.md) | Why the tracing provider lives in `MeshConfig` and not in the chart |
+| [`deploy/helm/enterprise-ecommerce/values.yaml`](deploy/helm/enterprise-ecommerce/values.yaml) | Per-service configuration, tiers, waypoint enrolment, edge exposure |
+| [`deploy/kubernetes/debezium/order-outbox-connector.yaml`](deploy/kubernetes/debezium/order-outbox-connector.yaml) | Outbox CDC connector |
+| [`hld/hld-mesh-architecture.drawio`](hld/hld-mesh-architecture.drawio) | High-level design diagram |
+| [`docker-compose.yml`](docker-compose.yml) | Local infrastructure, with the reasoning for each setting inline |
+
+## License
+
+MIT — see [LICENSE](LICENSE).

@@ -43,7 +43,7 @@ public class BusinessMetrics {
      * name-and-tags combination.
      *
      * <p>Exists so an alert rule and its emitter cannot drift apart. Every rule in
-     * {@code platform/observability/amp/rules.yaml} evaluates a metric
+     * {@code deploy/observability/amp/rules.yaml} evaluates a metric
      * name; if a service publishes that name under a spelling nobody reads, the
      * rule silently never fires and nobody finds out until the failure it was
      * meant to catch happens for real. Publishing through one shared helper makes

@@ -1,0 +1,18 @@
+# Strimzi resources for Change Data Capture.
+#
+#   kubectl apply -k deploy/kubernetes/debezium
+#
+# Kept out of deploy/kubernetes/base on purpose. The base set is applied on its
+# own to bring up the namespace and the edge workloads; this connector cannot
+# start without the KafkaConnect cluster, and it is applied deliberately rather
+# than as part of routine platform bootstrap.
+#
+# This directory does NOT create the KafkaConnect cluster. Nothing in this
+# repository does - see the note at the bottom of this file.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ecommerce
+
+resources:
+  - order-outbox-connector.yaml

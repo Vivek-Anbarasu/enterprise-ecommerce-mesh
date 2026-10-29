@@ -2,7 +2,7 @@
 //
 // Why this file exists: Azure Monitor managed Prometheus (AMP) does not evaluate
 // `PrometheusRule` custom resources. The rules in
-// platform/observability/amp/rules.yaml are a readable catalogue; this file is
+// deploy/observability/amp/rules.yaml are a readable catalogue; this file is
 // the deployable form. It creates:
 //
 //   1. A critical action group: email + SMS + optional ACS webhook.

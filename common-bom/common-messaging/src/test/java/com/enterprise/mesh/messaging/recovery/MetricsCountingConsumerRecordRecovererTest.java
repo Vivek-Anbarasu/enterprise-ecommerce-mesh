@@ -21,7 +21,7 @@ import com.enterprise.mesh.observability.BusinessMetrics;
 /**
  * Exercises the real recoverer, not a copy of it.
  *
- * <p>{@code DeadLetterQueueFilling} in {@code platform/observability/amp/rules.yaml} evaluated
+ * <p>{@code DeadLetterQueueFilling} in {@code deploy/observability/amp/rules.yaml} evaluated
  * {@code messaging_dead_letter_total}, which nothing published, so the rule could
  * never fire. This is the only emitter, which makes its wiring the thing worth
  * holding in place.

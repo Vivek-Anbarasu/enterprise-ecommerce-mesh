@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
  * Pins metric NAMES, because that is the only part of an alert rule and its
  * emitter that can silently drift apart.
  *
- * <p>{@code platform/observability/amp/rules.yaml} evaluates metric
+ * <p>{@code deploy/observability/amp/rules.yaml} evaluates metric
  * names as strings. Two rules in that file referenced metrics no service
  * published - {@code inventory_concurrent_update_total} and
  * {@code messaging_dead_letter_total} - so both evaluated to empty forever and

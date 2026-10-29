@@ -11,6 +11,9 @@ Selection is on `mesh.enterprise-ecommerce.io/rollout`, which the generated
 Deployment stamps onto its pods. To run a canary, change the label on a second
 Deployment to the canary value; the two Services then select the two pools and
 the HTTPRoute in templates/istio.yaml splits between them by weight.
+
+The only DestinationRules this chart renders carry outlier detection, not
+routing and not subsets; see templates/outlier-detection.yaml.
 */}}
 {{- if and .Values.istio (eq (.Values.istio.mode | default "none") "ambient") }}
 {{- $root := . }}

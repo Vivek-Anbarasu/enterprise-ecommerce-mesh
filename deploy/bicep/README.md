@@ -91,13 +91,13 @@ equivalent trap where `0.0.0.0/0` alone silently exempts every v6 client.
 
 Creates the Azure Monitor action groups and the
 `Microsoft.AlertsManagement/prometheusRuleGroups` resource that evaluates the
-PromQL catalogue in `platform/observability/amp/rules.yaml`.
+PromQL catalogue in `deploy/observability/amp/rules.yaml`.
 
 ### Why this is not in the chart
 
 Azure Monitor managed Prometheus does **not** evaluate `PrometheusRule` custom
 resources. The rule group and its action groups are Azure resources, so no
-Kubernetes manifest can create them. `kubectl apply -f platform/observability/amp/`
+Kubernetes manifest can create them. `kubectl apply -f deploy/observability/amp/`
 applies only the `PodMonitor` resources; the rules are deployed here.
 
 ### Deploy

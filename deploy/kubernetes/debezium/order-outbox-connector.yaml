@@ -1,0 +1,98 @@
+# Streams order-service's transactional outbox into Kafka via Change Data
+# Capture. This replaces the deleted OutboxRelay/OutboxStore polling pair: the
+# connector tails the PostgreSQL write-ahead log and publishes every inserted
+# outbox row, so no service polls the table.
+#
+#   kubectl apply -k deploy/kubernetes/debezium
+#   kubectl -n ecommerce get kafkaconnector order-outbox-connector
+#   kubectl -n ecommerce exec deploy/kafka-connect -- \
+#     curl -s localhost:8083/connectors/order-outbox-connector/status | jq
+#
+# NOT part of deploy/kubernetes/base on purpose. That set is applied on its own
+# to bring up the edge workloads, and this connector cannot start without the
+# KafkaConnect cluster below it, which does not exist in this repository yet.
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnector
+metadata:
+  name: order-outbox-connector
+  labels:
+    strimzi.io/cluster: ecommerce-connect-cluster
+spec:
+  class: io.debezium.connector.postgresql.PostgresConnector
+  # One task, deliberately. Partition-level ordering within an aggregate is the
+  # whole reason the event key is the aggregate id; a second task would split
+  # one order's events across connectors and could deliver them out of order.
+  tasksMax: 1
+  config:
+    # --- Connection -------------------------------------------------------
+    # Overridden per environment. Do not commit a hostname.
+    database.hostname: orders-db.postgres.database.azure.com
+    database.port: "5432"
+    database.dbname: orders_db
+    # Read from a Secret rather than committed here. The role needs REPLICATION
+    # and SELECT on public.outbox_events, and nothing more - the connector only
+    # ever reads the WAL and this one table.
+    database.user:
+      valueFrom:
+        secretKeyRef:
+          name: order-outbox-debezium
+          key: username
+    database.password:
+      valueFrom:
+        secretKeyRef:
+          name: order-outbox-debezium
+          key: password
+    # `plugin.name: pgoutput` is built into PostgreSQL, so no extra decoder
+    # plugin has to be installed into the container image.
+    plugin.name: pgoutput
+    # Both names must be stable across restarts. The slot name is how the
+    # connector resumes from its last committed offset; changing it silently
+    # starts a new stream from the current WAL position, which drops whatever
+    # was emitted while the connector was down.
+    slot.name: order_outbox_slot
+    publication.name: order_outbox_publication
+    publication.autocreate.mode: filtered
+    # Only the outbox table. Without this the connector streams orders and
+    # order_lines to Kafka too, and the outbox event router would then fail on
+    # every row that is not an outbox event.
+    table.include.list: "public.outbox_events"
+
+    # --- Event routing ---------------------------------------------------
+    transforms: "outbox"
+    transforms.outbox.type: "io.debezium.transforms.outbox.EventRouter"
+
+    # REQUIRED. The SMT defaults to route.by.field=aggregatetype, and this
+    # table has no such column - it has `topic`, holding "order.events". Without
+    # this the connector fails to route rather than falling back.
+    transforms.outbox.route.by.field: "topic"
+    transforms.outbox.route.topic.replacement: "${routedByValue}"
+
+    # Note the `table.` prefix. Kafka Connect silently ignores unknown options,
+    # so writing `field.event.id` instead of `table.field.event.id` looks like it
+    # works while leaving every default in place.
+    transforms.outbox.table.field.event.id: "event_id"
+    transforms.outbox.table.field.event.key: "aggregate_id"
+    transforms.outbox.table.field.event.timestamp: "created_at"
+
+    # Map columns onto the ce_* headers that CloudEventHeaders.read() expects on
+    # the consuming side. The SMT would otherwise emit `id` for the event id and
+    # put the aggregate on the record key, leaving every consumer reading
+    # `ce_tenantid` to fall back to its default of "public" and silently
+    # misattribute orders across tenants.
+    # Single line on purpose. Written as a folded block it renders back out with
+    # a space after each comma, and the SMT splits this list on "," without
+    # documented trimming - a leading space in a column name is a silent lookup
+    # failure rather than a parse error. Every documented example is unspaced.
+    transforms.outbox.table.fields.additional.placement: "event_id:header:ce_eventid,event_type:header:ce_type,aggregate_type:header:ce_aggregatetype,aggregate_id:header:ce_aggregateid,tenant_id:header:ce_tenantid,schema_version:header:ce_schemaversion,created_at:header:ce_occurredat,correlation_id:header:ce_correlationid"
+
+    # correlation_id is nullable, and the default behaviour is to throw when a
+    # configured field cannot be read. That would let a single order with no
+    # correlation id kill the task and stall every subsequent event.
+    transforms.outbox.table.field.additional.missing: "ignore"
+
+    # The outbox_events.payload column holds the bare business event, serialised
+    # by OutboxService and published verbatim as the Kafka record value. It is
+    # jsonb, so no JSON-string expansion is wanted here: expansion is for a
+    # payload stored as a quoted string, and turning this on would double-encode
+    # an already-structured value.
+    transforms.outbox.table.expand.json.payload: "false"

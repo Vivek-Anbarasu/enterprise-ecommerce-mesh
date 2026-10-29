@@ -158,10 +158,16 @@ spring:
                     name: orderCircuitBreaker
                     fallbackUri: forward:/fallback/orders
 
+            # Customer-facing reads only at the edge. Authorise/capture/void/refund
+            # are east-west calls from order-service, which talks to payment-service
+            # directly, so they are deliberately not routable north-south. The
+            # service still enforces SERVICE/ADMIN on those methods; this predicate
+            # removes them from the public route entirely.
             - id: payment
               uri: ${MESH_PAYMENT_URI:http://payment-service:${PAYMENT_SVC_PORT:8084}}
               predicates:
                 - Path=/api/payments/**
+                - Method=GET
               filters:
                 - name: RequestRateLimiter
                   args:
@@ -172,21 +178,25 @@ spring:
                   args:
                     name: paymentCircuitBreaker
                     fallbackUri: forward:/fallback/payments
-                # The payment service is the one caller in the mesh that leaves the
-                # cluster, to a card network with a bad habit of going slow globally
-                # rather than partially. Without a compartment here, a card-network
-                # latency event pins payment connections for the full 8s breaker
-                # timeout each, and shoppers lose the ability to add to their basket -
-                # a route with no slow dependency, sharing the same pool.
+                # Payment reads share the gateway's connection pool with every
+                # other route. The service still owns the card-network calls, but
+                # a payment-service slowdown - DB, worker pool, or a card-network
+                # event saturating workers - can pin gateway connections for the
+                # full 8s breaker timeout. Cap concurrency so a degraded payment
+                # read path cannot starve catalogue or cart.
                 - name: Bulkhead
                   args:
                     name: paymentBulkhead
                     fallbackUri: forward:/fallback/payments
 
+            # Stock lookup for the UI is a read. Reservations and receipts are
+            # east-west calls from order-service (direct DNS) and stay off the
+            # public edge; the service still enforces SERVICE/ADMIN on them.
             - id: inventory
               uri: ${MESH_INVENTORY_URI:http://inventory-service:${INVENTORY_SVC_PORT:8083}}
               predicates:
                 - Path=/api/inventory/**
+                - Method=GET
               filters:
                 - name: RequestRateLimiter
                   args:
@@ -206,12 +216,32 @@ spring:
                 # Istio AuthorizationPolicy restricts this to the mesh ingress.
                 exposure: internal
 
-            - id: shipping-internal
+            # ---------------- Partner-facing webhooks (public path, authenticated) ---
+            # Partner-facing carrier webhook. It lives under /api rather than
+            # /internal because the waypoint's deny-internal-from-gateway policy
+            # denies the gateway principal on /internal/*. The path is public but
+            # authenticated: the gateway validates the carrier's bearer token and
+            # shipping-delivery-service enforces ROLE_CARRIER.
+            #
+            # No Retry filter, deliberately. This is a POST status transition;
+            # replaying it could apply the same carrier event twice. The carrier
+            # owns retry, driven by the 503 + problem body from the fallback.
+            - id: shipping-webhooks
               uri: ${MESH_SHIPPING_URI:http://shipping-delivery-service:${SHIPPING_SVC_PORT:8089}}
               predicates:
-                - Path=/internal/shipping/**
-              metadata:
-                exposure: internal
+                - Path=/api/shipping/webhooks/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: shippingCircuitBreaker
+                    fallbackUri: forward:/fallback/shipping
+                # Inside the breaker, like the other bounded routes: an open
+                # circuit sheds without spending a permit, and only a call that
+                # is actually going downstream consumes one.
+                - name: Bulkhead
+                  args:
+                    name: shippingBulkhead
+                    fallbackUri: forward:/fallback/shipping
 
             - id: ai-orchestrator
               uri: ${MESH_AI_URI:http://ai-orchestrator-service:${AI_SVC_PORT:8090}}
@@ -277,6 +307,13 @@ resilience4j:
       aiCircuitBreaker:
         baseConfig: default
         waitDurationInOpenState: 30s
+      # Low-volume partner route: waiting for the default 10 calls in a 20-call
+      # window to observe a failing shipping service takes too long when carriers
+      # send a handful of updates a minute. Trip after 5, fail fast with 503, and
+      # let the carrier retry on its own schedule.
+      shippingCircuitBreaker:
+        baseConfig: default
+        minimumNumberOfCalls: 5
   timelimiter:
     configs:
       default:
@@ -291,6 +328,12 @@ resilience4j:
         timeoutDuration: 8s
       aiCircuitBreaker:
         timeoutDuration: 30s
+      # Outer budget only. The waypoint's /api/ HTTPRoute also applies its 3s
+      # per-attempt timeout in front of the service, so this is the backstop for
+      # the gateway -> waypoint hop, not the normal path. It must stay above
+      # shipping's own 5s Hikari connection timeout.
+      shippingCircuitBreaker:
+        timeoutDuration: 8s
 
   # Semaphore bulkheads, one compartment per route, capping how many requests
   # may be in flight against a given backend at the same time.
@@ -336,6 +379,13 @@ resilience4j:
         # the cart and catalogue routes depend on. At a healthy 500ms it
         # comfortably clears the configured rate.
         maxConcurrentCalls: ${BULKHEAD_PAYMENT_MAX:25}
+      shippingBulkhead:
+        baseConfig: default
+        # Bounds a carrier retry storm, and the shared connection pool it would
+        # otherwise occupy. Sized for a partner replay backlog after an outage,
+        # not for shopper traffic: the carrier gets 503 and retries rather than
+        # the gateway queueing updates it cannot deliver.
+        maxConcurrentCalls: ${BULKHEAD_SHIPPING_MAX:15}
 
 management:
   endpoints:

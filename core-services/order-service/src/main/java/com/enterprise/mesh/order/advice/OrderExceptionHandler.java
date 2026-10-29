@@ -6,8 +6,7 @@ import java.net.URI;
 import java.util.Map;
 
 import com.enterprise.mesh.order.controller.OrderController;
-import com.enterprise.mesh.order.domain.Order;
-import com.enterprise.mesh.order.saga.CheckoutSagaOrchestrator;
+import com.enterprise.mesh.order.saga.SagaExceptions;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -34,8 +33,8 @@ public class OrderExceptionHandler {
      * so it maps to 409 rather than 500 - the storefront shows an alternative
      * rather than a generic error.
      */
-    @ExceptionHandler(CheckoutSagaOrchestrator.InsufficientStockException.class)
-    public ProblemDetail handleOutOfStock(CheckoutSagaOrchestrator.InsufficientStockException ex) {
+    @ExceptionHandler(SagaExceptions.InsufficientStockException.class)
+    public ProblemDetail handleOutOfStock(SagaExceptions.InsufficientStockException ex) {
         log.info("Checkout rejected for out-of-stock: {}", ex.getMessage());
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
         problem.setTitle("Item No Longer Available");
@@ -43,8 +42,8 @@ public class OrderExceptionHandler {
         return problem;
     }
 
-    @ExceptionHandler(CheckoutSagaOrchestrator.PaymentDeclinedException.class)
-    public ProblemDetail handleDeclined(CheckoutSagaOrchestrator.PaymentDeclinedException ex) {
+    @ExceptionHandler(SagaExceptions.PaymentDeclinedException.class)
+    public ProblemDetail handleDeclined(SagaExceptions.PaymentDeclinedException ex) {
         log.info("Checkout rejected: payment declined");
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT,
                 "The payment was declined. No money has been taken.");

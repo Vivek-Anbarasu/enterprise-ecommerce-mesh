@@ -1,0 +1,58 @@
+{{/*
+Per-destination outlier detection, applied by the waypoint.
+
+Outlier detection is not a waypoint default. Istio enables it only when a
+DestinationRule carries `trafficPolicy.outlierDetection`, and the waypoint
+applies that policy to the individual endpoints of the destination. One rule is
+needed per destination because a DestinationRule host is a single Service.
+
+A canary makes this look wider than it is: the HTTPRoute's `backendRefs` name
+the `<name>-stable` and `<name>-<label>` Services, not only the parent Service,
+so each of those clusters needs its own rule. The parent Service still gets one
+because it remains a valid destination even when the HTTPRoute names the rollout
+Services.
+
+This is complementary to the gateway circuit breaker, not a replacement. The
+gateway sees one Kubernetes Service and trips for the whole service; the
+waypoint sees individual endpoints and ejects only the failing one. Ejection is
+reactive, so readiness remains the first-line health check.
+*/}}
+{{- if and .Values.istio (eq (.Values.istio.mode | default "none") "ambient") .Values.istio.waypoint.enabled .Values.trafficPolicies.enabled .Values.trafficPolicies.outlierDetection.enabled }}
+{{- $root := . }}
+{{- $od := .Values.trafficPolicies.outlierDetection }}
+{{- $ns := .Release.Namespace }}
+{{- range $name, $service := .Values.services }}
+{{- if and $service.enabled $service.waypoint (not $service.headless) }}
+{{- $canary := dig "canary" "enabled" false $service }}
+{{- $destinations := list $name }}
+{{- if $canary }}
+{{- $destinations = append $destinations (printf "%s-stable" $name) }}
+{{- $destinations = append $destinations (printf "%s-%s" $name ($service.canary.label | default "canary")) }}
+{{- end }}
+{{- range $dest := $destinations }}
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: {{ $dest }}-outlier-detection
+  namespace: {{ $ns }}
+  labels:
+    {{- include "ecommerce.labels" (dict "root" $root "serviceName" $dest) | nindent 4 }}
+spec:
+  host: {{ $dest }}.{{ $ns }}.svc.cluster.local
+  trafficPolicy:
+    # Only outlier detection is set here. Load balancing remains the waypoint's
+    # per-request default; a loadBalancer block would turn a data-plane default
+    # into another hand-maintained policy that can drift from it.
+    outlierDetection:
+      consecutive5xxErrors: {{ $od.consecutive5xxErrors }}
+      splitExternalLocalOriginErrors: true
+      consecutiveLocalOriginFailures: {{ $od.consecutiveLocalOriginFailures }}
+      interval: {{ $od.interval }}
+      baseEjectionTime: {{ $od.baseEjectionTime }}
+      maxEjectionPercent: {{ $od.maxEjectionPercent }}
+      minHealthPercent: {{ $od.minHealthPercent }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

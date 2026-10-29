@@ -62,10 +62,34 @@ mesh:
   # Debezium streams them out of the WAL. There is nothing to poll or batch here.
   saga:
     reservation-ttl-seconds: ${RESERVATION_TTL_SECONDS:900}
+    # Remote-call budgets. Without these the saga's RestClient waits forever on a
+    # hung participant, and because checkout is synchronous so does the shopper.
+    connect-timeout: ${SAGA_CONNECT_TIMEOUT:2s}
+    read-timeout: ${SAGA_READ_TIMEOUT:5s}
+    # Must exceed the worst case of all steps (roughly four read timeouts). Past
+    # this, the claim is stale and StaleSagaSweeper fails the checkout.
+    claim-lease: ${SAGA_CLAIM_LEASE:120s}
+    # Retries for compensating actions that did not land when the checkout failed.
+    compensation:
+      enabled: ${SAGA_COMPENSATION_ENABLED:true}
+      interval-ms: ${SAGA_COMPENSATION_INTERVAL_MS:30000}
+      batch-size: ${SAGA_COMPENSATION_BATCH_SIZE:50}
+      base-delay-seconds: ${SAGA_COMPENSATION_BASE_DELAY_SECONDS:30}
+      max-delay-seconds: ${SAGA_COMPENSATION_MAX_DELAY_SECONDS:900}
+      lease-seconds: ${SAGA_COMPENSATION_LEASE_SECONDS:60}
+    # Fails checkouts whose orchestrator died mid-flight, then compensates.
+    recovery:
+      enabled: ${SAGA_RECOVERY_ENABLED:true}
+      interval-ms: ${SAGA_RECOVERY_INTERVAL_MS:60000}
+      batch-size: ${SAGA_RECOVERY_BATCH_SIZE:50}
   clients:
     inventory: ${INVENTORY_URI:http://inventory-service:8083}
     payment: ${PAYMENT_URI:http://payment-service:8084}
 
+# These two breakers are the saga's, wired by SagaClientConfig. Kept in config
+# rather than built in code so the failure thresholds are visible next to the
+# timeouts they complement. A 409 from inventory (sold out) does not count as a
+# failure - only transport errors and 5xx do.
 resilience4j:
   circuitbreaker:
     configs:

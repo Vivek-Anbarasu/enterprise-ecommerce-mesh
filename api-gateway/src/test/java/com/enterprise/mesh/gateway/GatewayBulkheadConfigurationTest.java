@@ -10,6 +10,8 @@ import reactor.core.publisher.Mono;
 import io.github.resilience4j.bulkhead.Bulkhead;
 import io.github.resilience4j.bulkhead.BulkheadConfig;
 import io.github.resilience4j.bulkhead.BulkheadRegistry;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.timelimiter.TimeLimiterRegistry;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -50,6 +52,12 @@ class GatewayBulkheadConfigurationTest {
     private BulkheadRegistry bulkheadRegistry;
 
     @Autowired
+    private CircuitBreakerRegistry circuitBreakerRegistry;
+
+    @Autowired
+    private TimeLimiterRegistry timeLimiterRegistry;
+
+    @Autowired
     private RouteDefinitionLocator routeDefinitionLocator;
 
     @Test
@@ -77,6 +85,25 @@ class GatewayBulkheadConfigurationTest {
     }
 
     @Test
+    @DisplayName("the shipping compartment holds the 15 concurrent calls it was configured for")
+    void shippingBulkheadIsConfigured() {
+        Bulkhead shipping = bulkheadRegistry.bulkhead("shippingBulkhead");
+
+        assertThat(shipping.getBulkheadConfig().getMaxConcurrentCalls()).isEqualTo(15);
+        assertThat(shipping.getBulkheadConfig().getMaxWaitDuration()).isEqualTo(Duration.ZERO);
+    }
+
+    @Test
+    @DisplayName("the carrier webhook breaker trips after 5 calls and gives an 8s budget")
+    void shippingBreakerIsConfigured() {
+        assertThat(circuitBreakerRegistry.circuitBreaker("shippingCircuitBreaker")
+                .getCircuitBreakerConfig().getMinimumNumberOfCalls()).isEqualTo(5);
+
+        assertThat(timeLimiterRegistry.timeLimiter("shippingCircuitBreaker")
+                .getTimeLimiterConfig().getTimeoutDuration()).isEqualTo(Duration.ofSeconds(8));
+    }
+
+    @Test
     @DisplayName("the AI route sheds to the AI fallback")
     void aiRouteIsBounded() {
         assertThat(filterArgs(route("ai-orchestrator"), "Bulkhead"))
@@ -93,6 +120,19 @@ class GatewayBulkheadConfigurationTest {
     }
 
     @Test
+    @DisplayName("the carrier webhook route is bounded and deliberately never retried")
+    void shippingWebhookRouteIsBoundedAndNotRetried() {
+        assertThat(filterArgs(route("shipping-webhooks"), "Bulkhead"))
+                .containsEntry("name", "shippingBulkhead")
+                .containsEntry("fallbackUri", "forward:/fallback/shipping");
+
+        // A status transition is not idempotent. Retrying it is the one resilience
+        // control this route must NOT have; the carrier owns retry on 503.
+        assertThat(filterNames(route("shipping-webhooks")))
+                .doesNotContain("Retry", "RequestRateLimiter");
+    }
+
+    @Test
     @DisplayName("the bulkhead sits inside the circuit breaker on both bounded routes")
     void bulkheadIsInsideTheCircuitBreaker() {
         // Ordering is the whole design. The circuit breaker sheds an open circuit
@@ -101,6 +141,7 @@ class GatewayBulkheadConfigurationTest {
         // would burn a permit for nothing.
         assertBoundedInsideBreaker("ai-orchestrator", "aiCircuitBreaker");
         assertBoundedInsideBreaker("payment", "paymentCircuitBreaker");
+        assertBoundedInsideBreaker("shipping-webhooks", "shippingCircuitBreaker");
     }
 
     @Test

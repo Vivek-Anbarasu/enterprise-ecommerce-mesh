@@ -1,0 +1,229 @@
+# BFF service: the browser-facing backend for the storefront SPA.
+#
+# Sits IN FRONT of the api-gateway rather than behind it. The browser holds one
+# opaque HttpOnly cookie naming a session in Redis; this service exchanges that
+# for a short-lived bearer token and calls the api-gateway like any other API
+# client. The gateway therefore stays the single mesh entry point for every other
+# client (mobile, partner APIs), and this is simply another in-mesh caller of it.
+#
+#   browser --cookie--> bff-service --bearer--> api-gateway --> services
+#
+# Apply:
+#   kubectl apply -k deploy/kubernetes/base
+---
+# Its own identity, not the shared ecommerce-workload one. It is the only mesh
+# workload permitted to call the api-gateway directly, and naming a single
+# principal in an AuthorizationPolicy is only meaningful if exactly one workload
+# holds it.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ecommerce-bff
+  namespace: ecommerce
+  labels:
+    app.kubernetes.io/name: bff-service
+    app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bff-service-config
+  namespace: ecommerce
+  labels:
+    app.kubernetes.io/name: bff-service
+    app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+data:
+  SERVER_PORT: "8091"
+  MESH_ENV: "aks-prod"
+  # The BFF's only route into the business mesh. Everything it needs is reachable
+  # from here by way of the gateway, so that rate limiting, tenant re-derivation
+  # and per-route circuit breaking stay in one place.
+  MESH_GATEWAY_URI: "http://api-gateway:8080"
+  # Session state. No sticky sessions: the waypoint balances per request, so a
+  # cookie that only resolved on the pod that issued it would log the shopper out
+  # whenever they were moved.
+  REDIS_HOST: "redis-cache.redis.svc.cluster.local"
+  REDIS_PORT: "6379"
+  SESSION_NAMESPACE: "bff:session"
+  SESSION_TIMEOUT: "30m"
+  # Exact storefront origins, never a wildcard. This service reads a
+  # SameSite-protected session cookie, so the CORS allow-list is load-bearing
+  # rather than cosmetic.
+  BFF_ALLOWED_ORIGINS: "https://shop.enterprise-ecommerce.com"
+  ENTRA_CLIENT_ID: "PLACEHOLDER_ENTRA_APPLICATION_CLIENT_ID"
+  ENTRA_TENANT_ID: "PLACEHOLDER_ENTRA_DIRECTORY_TENANT_ID"
+  # Must match the redirect URI registered on the Entra app registration exactly.
+  ENTRA_REDIRECT_URI: "https://shop.enterprise-ecommerce.com/bff/oauth2/callback/entra"
+  OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4318/v1/traces"
+  LOG_FORMAT: "ecs"
+  LOG_LEVEL_ROOT: "INFO"
+  # `entra` is the profile carrying the OAuth2 client registration. It is a
+  # separate file from application.yml on purpose: in Spring Boot a registration
+  # whose client-id is present but empty is a startup failure, so the
+  # registration must be either fully configured or entirely absent.
+  SPRING_PROFILES_ACTIVE: "production,entra"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bff-service
+  namespace: ecommerce
+  labels:
+    app.kubernetes.io/name: bff-service
+    app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+spec:
+  replicas: 3
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bff-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Never drop below the desired count, so capacity does not dip mid-deploy.
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bff-service
+        app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8091"
+    spec:
+      serviceAccountName: ecommerce-bff
+      # Spread replicas so losing one node or zone cannot take the whole tier.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: bff-service
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bff-service
+          image: acrenterprise.azurecr.io/ecommerce/bff-service:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8091
+          envFrom:
+            - configMapRef:
+                name: bff-service-config
+          env:
+            # Omitted entirely for a public-client registration, which is the
+            # better default for a browser-facing app: there is no secret to
+            # leak. Supply it here only when the Entra registration is
+            # confidential, and read it from Key Vault via the CSI driver.
+            - name: ENTRA_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bff-oauth-credentials
+                  key: client-secret
+                  optional: true
+          startupProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests: { cpu: 250m, memory: 384Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        # Tomcat needs a writable temp directory even with a read-only root.
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bff-service
+  namespace: ecommerce
+  labels:
+    app.kubernetes.io/name: bff-service
+    app.kubernetes.io/part-of: enterprise-ecommerce-mesh
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: bff-service
+  ports:
+    - name: http
+      port: 8091
+      targetPort: http
+---
+# Same exception to STRICT mTLS as the api-gateway, for the same reason:
+# Application Gateway for Containers runs its data plane outside the cluster with
+# no SPIFFE identity to authenticate against, so the serving port has to be
+# PERMISSIVE. Everything this service calls - the gateway, the identity provider,
+# Redis - is unaffected and stays encrypted.
+#
+# `portLevelMtls` only takes effect with a selector, hence a second
+# workload-scoped policy rather than a field on the namespace-wide one.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: bff-service-edge-port
+  namespace: ecommerce
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bff-service
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    8091:
+      mode: PERMISSIVE
+---
+# Only Application Gateway for Containers may reach the BFF, so a compromised
+# in-cluster pod cannot bypass the WAF and the edge by dialling it directly.
+#
+# ipBlocks rather than a namespaceSelector: AGC's data plane runs outside the
+# cluster, so there is no namespace, pod or ServiceAccount to select on. The CIDR
+# must match both the `backendCidrs` placeholder in edge-gateway.yaml and
+# `istio.edge.sourceCidrs` in deploy/helm/enterprise-ecommerce/values.yaml.
+# If they disagree, one silently wins and the edge either 503s or is open.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bff-service-edge-only
+  namespace: ecommerce
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: bff-service
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: PLACEHOLDER_AGC_SUBNET_CIDR
+      ports:
+        - protocol: TCP
+          port: 8091
+    # Ambient terminates HBONE on 15008 and only then forwards to 8091, and
+    # NetworkPolicy is evaluated on the host before the tunnel is unwrapped.
+    # Allowing 15008 does not open the BFF to AGC or to anything else: that port
+    # speaks HBONE only, so a caller still has to present a mesh identity.
+    - ports:
+        - protocol: TCP
+          port: 15008

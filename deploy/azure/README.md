@@ -18,7 +18,7 @@ cannot be created by the Helm chart. Same reasoning as
 | Signal | Backend | Replaces |
 |---|---|---|
 | Metrics | Azure Monitor managed service for Prometheus (workspace-based) | self-hosted Prometheus in-cluster |
-| Dashboards | Azure Managed Grafana | self-hosted Grafana + `platform/observability/grafana/` |
+| Dashboards | Azure Managed Grafana | self-hosted Grafana + `deploy/observability/grafana/` |
 | Traces | Application Insights (OTLP ingest) | Jaeger |
 | Logs | Log Analytics, via the Application Insights OTLP logs endpoint | *nothing — there was no log backend* |
 | Alerting | Azure Monitor Prometheus rule groups + action groups | *nothing — there was no Alertmanager* |
@@ -94,7 +94,7 @@ component's connection string (or an Entra token), and the endpoint is a public
 Pointing every application at it directly would mean putting that credential in
 nine Deployments and in istiod. The repository therefore runs an OpenTelemetry
 Collector in the `observability` namespace
-(`platform/observability/otel-collector/`), and only the collector holds it:
+(`deploy/observability/otel-collector/`), and only the collector holds it:
 
 ```
 application pods ──OTLP/HTTP :4318──┐
@@ -129,7 +129,7 @@ datasource UID it creates is not known in advance, so the connection is best
 done in the portal or via the resource API rather than by a provisioning file
 that guesses a UID.
 
-**Migration item:** `platform/observability/grafana/provisioning/` and the
+**Migration item:** `deploy/observability/grafana/provisioning/` and the
 `mesh-overview.json` dashboard are provisioning files for a *self-hosted* Grafana.
 They do not carry over. The dashboard's PromQL needs re-authoring against the
 AMP datasource, and `reporter` labels must read `waypoint`, not `destination`.
@@ -144,7 +144,7 @@ needed, and neither is a Kubernetes object:
 | Action groups | `Microsoft.Insights/actionGroups` | Delivery: email, SMS, voice, webhook |
 | Rule group | `Microsoft.AlertsManagement/prometheusRuleGroups` | AMP evaluates this, not `PrometheusRule` |
 
-`platform/observability/amp/rules.yaml` is a readable catalogue of the PromQL.
+`deploy/observability/amp/rules.yaml` is a readable catalogue of the PromQL.
 It is **not** applied by `kubectl`: Azure Monitor managed Prometheus does not
 evaluate `PrometheusRule` CRDs. The deployable form is
 [`deploy/bicep/alerting.bicep`](../bicep/alerting.bicep), which creates both
@@ -176,7 +176,7 @@ groups, not Grafana-managed alerts.
 
 ## 6. In-cluster configuration
 
-Everything Kubernetes-side lives in [`platform/observability/amp/`](../../platform/observability/amp/):
+Everything Kubernetes-side lives in [`deploy/observability/amp/`](../observability/amp/):
 
 | File | Contents |
 |---|---|
@@ -185,7 +185,7 @@ Everything Kubernetes-side lives in [`platform/observability/amp/`](../../platfo
 | `rules.yaml` | Readable catalogue of the PromQL; deployed by `deploy/bicep/alerting.bicep`, not by `kubectl` |
 
 ```bash
-kubectl apply -f platform/observability/amp/
+kubectl apply -f deploy/observability/amp/
 ```
 
 This applies the `PodMonitor` resources only. The rule group is an Azure
@@ -207,7 +207,7 @@ skipped.
 1. Azure Monitor workspace
 2. `az aks update --enable-azure-monitor-metrics`
 3. Application Insights + **enable OTLP** + resolve the auth-header question
-4. `kubectl apply -f platform/observability/amp/` (PodMonitors only)
+4. `kubectl apply -f deploy/observability/amp/` (PodMonitors only)
 5. Managed Grafana + datasource
 6. `az deployment group create ... alerting.bicep` (action groups + rule group)
 

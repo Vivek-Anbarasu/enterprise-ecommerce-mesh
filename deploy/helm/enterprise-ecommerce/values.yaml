@@ -307,9 +307,9 @@ services:
     tier: core
     replicas: 3
     port: 8084
-    # Charged by this service. The waypoint gives request-level retries and
-    # outlier ejection in front of it, so a stalling pod is pulled out of the
-    # pool instead of timing out every shopper who reaches it.
+    # Charged by this service. The waypoint applies request-level retries and
+    # explicit outlier detection in front of it, so a stalling pod is pulled
+    # out of the pool instead of timing out every shopper who reaches it.
     waypoint: true
     image: { repository: payment-service }
     database: payments
@@ -398,9 +398,10 @@ services:
     replicas: 2
     port: 8089
     # Despite sitting on the async tier, this one DOES need a waypoint: it
-    # exposes an /internal/shipping REST surface for carrier webhooks. Path
-    # level authorisation of that surface is an L7 rule, and a rule ztunnel
-    # cannot evaluate would be rejected as unsafe rather than ignored.
+    # exposes /api/shipping/webhooks for carrier webhooks. That surface enters
+    # through the api-gateway, which applies a breaker, bulkhead and timeout but
+    # no retry (a status transition is not safe to replay). The waypoint adds
+    # per-request balancing and the L7 path policy.
     waypoint: true
     image: { repository: shipping-delivery-service }
     database: shipping
@@ -532,7 +533,7 @@ webApplicationFirewall:
 # and no chart template ever read it. Nothing was deployed by those flags, so
 # they were three switches that appeared to control a platform nobody could
 # switch on. The metrics path is Azure Monitor managed service for Prometheus,
-# configured in-cluster by platform/observability/amp/ and in Azure by
+# configured in-cluster by deploy/observability/amp/ and in Azure by
 # deploy/azure/ - neither of which is this chart's business.
 #
 # Local development runs its own Prometheus, Grafana and Jaeger from
@@ -577,6 +578,37 @@ trafficPolicies:
       - GET
       - HEAD
       - OPTIONS
+
+  # Per-pod ejection, applied by the waypoint. This is deliberately separate
+  # from the gateway's circuit breaker: the gateway sees one Kubernetes Service
+  # and can only stop traffic to the whole service, while the waypoint sees the
+  # individual endpoints and removes only the endpoint that is failing.
+  #
+  # Istio does not enable outlier detection by default. The chart renders one
+  # DestinationRule per waypoint-enrolled destination with this trafficPolicy;
+  # the waypoint applies it when the destination is in the data path.
+  outlierDetection:
+    enabled: true
+    # A pod is ejected after this many consecutive upstream 5xx responses.
+    consecutive5xxErrors: 5
+    # Timeouts, connection failures and resets are local-origin failures. They
+    # are counted separately from 5xx so a pod that accepts connections but
+    # never answers is removed too, rather than looking healthy because it has
+    # no HTTP response to classify.
+    consecutiveLocalOriginFailures: 3
+    # Re-evaluate every 10s. The first ejection lasts 30s; Envoy multiplies the
+    # base by the number of consecutive ejections, so a repeatedly failing pod
+    # stays out longer. A recovered pod re-enters on the next sweep.
+    interval: 10s
+    baseEjectionTime: 30s
+    # Never eject more than half the endpoints. With two replicas that is one,
+    # so a bad endpoint cannot empty the pool; a single-replica service keeps
+    # serving because there is no healthy peer to take over.
+    maxEjectionPercent: 50
+    # Once fewer than half the endpoints are healthy, stop ejecting and let the
+    # remaining endpoints share the load. This is a panic-mode guard, not a
+    # claim that they are healthy.
+    minHealthPercent: 50
 
 autoscaling:
   enabled: true

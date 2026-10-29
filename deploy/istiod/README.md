@@ -24,7 +24,7 @@ and istioctl rejects the whole `Telemetry` resource — so enabling
 off, with no error explaining why.
 
 The destination is the in-cluster OpenTelemetry Collector
-(`platform/observability/otel-collector/`), not Application Insights directly.
+(`deploy/observability/otel-collector/`), not Application Insights directly.
 Azure Monitor's OTLP ingest path is authenticated and Istio's extension provider
 has no header mechanism; the collector terminates OTLP and holds the connection
 string.

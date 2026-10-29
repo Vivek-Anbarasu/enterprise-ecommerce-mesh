@@ -70,7 +70,7 @@ spec:
         # Services select on (see templates/canary.yaml).
         mesh.enterprise-ecommerce.io/rollout: {{ $rollout }}
         {{- if $isHeadless }}
-        # Consumed by platform/observability/amp/podmonitors.yaml. A headless
+        # Consumed by deploy/observability/amp/podmonitors.yaml. A headless
         # pod has no business port, so it needs its own PodMonitor on the
         # management port rather than the namespace-wide `port: http` target.
         app.kubernetes.io/headless: "true"
