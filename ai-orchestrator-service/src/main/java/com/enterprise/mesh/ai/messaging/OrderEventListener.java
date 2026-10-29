@@ -85,7 +85,7 @@ public class OrderEventListener {
         }
 
         try (MDC.MDCCloseable _ = MDC.putCloseable("event_id", metadata.eventId());
-             MDC.MDCCloseable __ = MDC.putCloseable("tenant_id", metadata.tenantId())) {
+             MDC.MDCCloseable _ = MDC.putCloseable("tenant_id", metadata.tenantId())) {
 
             String customerId = string(payload, "customerId", null);
             List<String> skus = strings(payload, "skus");

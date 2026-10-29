@@ -56,7 +56,7 @@ public class ProductEventListener {
         }
 
         try (org.slf4j.MDC.MDCCloseable _ = org.slf4j.MDC.putCloseable("event_id", metadata.eventId());
-             org.slf4j.MDC.MDCCloseable __ = org.slf4j.MDC.putCloseable("tenant_id", tenantId)) {
+             org.slf4j.MDC.MDCCloseable _ = org.slf4j.MDC.putCloseable("tenant_id", tenantId)) {
 
             if (PRODUCT_DEACTIVATED.equals(metadata.eventType())) {
                 boolean removed = indexService.remove(tenantId, sku);
