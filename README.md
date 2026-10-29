@@ -1,5 +1,7 @@
 # Enterprise Multi-Tenant E-Commerce Mesh
 
+[![CI](https://github.com/Vivek-Anbarasu/enterprise-ecommerce-mesh/actions/workflows/ci.yml/badge.svg)](https://github.com/Vivek-Anbarasu/enterprise-ecommerce-mesh/actions/workflows/ci.yml)
+
 A twelve-service e-commerce backend on **Spring Boot 4.1 / Java 25**, deployed to **Azure AKS**
 behind an **Istio ambient** mesh. Tenant-scoped at every hop, event-driven at the async edge, and
 synchronous only where a shopper is actually waiting.
@@ -11,6 +13,7 @@ synchronous only where a shopper is actually waiting.
 - [Architecture](#architecture)
 - [Services](#services)
 - [Tech stack](#tech-stack)
+- [Design decisions](#design-decisions)
 - [Repository layout](#repository-layout)
 - [Getting started](#getting-started)
   - [Prerequisites](#prerequisites)
@@ -104,7 +107,36 @@ Each PostgreSQL service owns its own database (`orders_db`, `inventory_db`, `pay
 | Mesh | Istio **ambient** (ztunnel L4 + shared waypoint L7), Gateway API |
 | Cloud | Azure AKS, ACR, Key Vault, Service Bus/Event Hubs, Azure Monitor managed Prometheus |
 | Packaging | Jib (primary, daemonless), `docker/Dockerfile.template` (fallback), Helm, Bicep |
-| Testing | JUnit 5, Testcontainers 2.0.5, surefire/failsafe |
+| Testing | JUnit 5, Mockito, AssertJ, H2 for context slices, surefire/failsafe; Testcontainers declared for future ITs |
+
+## Design decisions
+
+The decisions that shape this repository are the ones with a **cost**. Each is recorded as
+an ADR under [`docs/adr/`](docs/adr/README.md) with the alternatives that were rejected and
+the measurable conditions under which it should be reopened.
+
+| Decision | Why | Trade-off accepted |
+| --- | --- | --- |
+| **Checkout is a compensatable orchestrator saga** — [ADR-0001](docs/adr/0001-checkout-saga-orchestration.md) | A shopper is waiting, so the flow must be synchronous and must be able to undo steps that already committed. | The orchestrator is a coupling point and needs a sweeper; an ambiguous authorise timeout still leaves an orphaned hold at the provider. |
+| **Events leave through a transactional outbox, read by Debezium** — [ADR-0002](docs/adr/0002-transactional-outbox-with-debezium-cdc.md) | The order row and its event must commit together; a dual write can commit one and lose the other. | CDC becomes an operational dependency, and the payload column becomes a wire contract. |
+| **One schema per service, a tenant column on every aggregate** — [ADR-0003](docs/adr/0003-shared-schema-multi-tenancy.md) | Many tenants share one deployment, and a schema change is one migration. | Every query must be tenant-filtered; isolation is enforced in code, not by the database. |
+| **Brute-force cosine instead of a vector database** — [ADR-0004](docs/adr/0004-brute-force-semantic-search.md) | A few thousand 768-dimension vectors scan in single-digit milliseconds; a vector store adds a deployment and an outage mode. | Search is O(n) per query and memory-resident; the crossover is about ten thousand products. |
+| **The BFF holds the token bundle; the browser holds a session cookie** — [ADR-0005](docs/adr/0005-bff-server-side-token-storage.md) | An XSS bug must not be able to exfiltrate an access token. | One extra hop, Redis on the authentication path, and CSRF to think about. |
+| **A database per service, no shared schema** | Services must be deployable and migratable independently. | Cross-service joins become API calls; reporting needs its own path. |
+| **Istio ambient rather than a sidecar per pod** | ztunnel gives mTLS at L4 without a proxy in every pod; only the waypoint pays for L7. | Ambient is newer than sidecar mode and has fewer field-years. |
+| **Timeouts and circuit breakers in configuration, not code** | A hung dependency must fail fast, and the breaker — not a long timeout — is what absorbs slowness. | Budgets have to be tuned per environment, and a wrong budget is invisible until it matters. |
+
+### What this architecture deliberately does not do
+
+- **No distributed transactions.** Checkout is a saga with durable compensation, not 2PC.
+- **No shared database.** A cross-service read is an API call, and a schema is owned by one
+  service.
+- **No token in the browser.** The SPA holds an HttpOnly session cookie and nothing else.
+- **No vector database.** Similarity is a scan until the catalogue makes that wrong, and the
+  crossover point is written down.
+- **No sidecar per pod.** The mesh is ambient; L7 is only paid for where L7 is used.
+- **No synchronous call in the async edge.** Notification and shipping are Kafka-driven and
+  have no business HTTP listener.
 
 ## Repository layout
 
@@ -304,13 +336,29 @@ Conventions:
 ## Testing
 
 ```bash
-mvn test          # unit tests
-mvn verify        # adds failsafe ITs; skipITs=true by default
+mvn test          # 107 tests, ~75 seconds, no Docker required
+mvn verify        # same suite plus failsafe; skipITs=true until the first *IT exists
 ```
 
-Testcontainers starts PostgreSQL, MongoDB, Redis and Kafka per test class, so Docker must be
-running. The schema under test is the Flyway migration that ships, not a hand-written parallel
-one.
+The suite needs no Docker, no database and no broker. Redis and Kafka clients connect lazily,
+so contexts start without them; the inventory slices run on H2 in PostgreSQL mode; everything
+else is mocked at the boundary it is testing. CI runs `mvn verify` on every push.
+
+The tests are shaped around properties a happy-path test would miss:
+
+- **Architecture tests** — `SagaTransactionBoundaryTest` asserts by reflection that the
+  orchestrator carries no `@Transactional` and that every state-store write does, so a later
+  refactor cannot silently restore the connection-and-row-lock window around two HTTP calls.
+- **Wiring tests** — `OrderEventListenerWiringTest` asserts the listener container and
+  consumer group from the annotation, because a group id in `application.yml` is silently
+  ignored.
+- **Configuration tests** — the cache tests assert the `CacheManager` the service actually
+  ships with, not a test substitute, and that the running TTL matches the constant eviction
+  uses.
+
+Testcontainers is declared for the modules that own a database, so an integration test can be
+added without touching a POM, but no test currently starts a container. The schema under test
+is the Flyway migration that ships, not a hand-written parallel one.
 
 ## Deployment
 
@@ -358,6 +406,7 @@ they intentionally do not duplicate the mesh policy, which is rendered from
 
 | Document | Contents |
 |---|---|
+| [`docs/adr/`](docs/adr/README.md) | The five architecture decisions above, with alternatives, consequences and revisit triggers |
 | [`deploy/azure/README.md`](deploy/azure/README.md) | Azure Monitor workspace, managed Prometheus, App Insights, Managed Grafana, alerting order of operations |
 | [`deploy/bicep/README.md`](deploy/bicep/README.md) | WAF policy and alert rules; what Bicep owns versus the chart |
 | [`deploy/istiod/README.md`](deploy/istiod/README.md) | Why the tracing provider lives in `MeshConfig` and not in the chart |
