@@ -46,6 +46,7 @@ class OrderEventListenerTest {
     private OrderEventListener listener;
 
     @BeforeEach
+    @SuppressWarnings("unchecked") // Mockito cannot express the type parameters of ValueOperations
     void setUp() {
         recommendationService = org.mockito.Mockito.mock(RecommendationService.class);
         redis = org.mockito.Mockito.mock(StringRedisTemplate.class);
